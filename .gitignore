@@ -1,0 +1,34 @@
+# 敏感配置（即使内容加密，也不建议提交）
+config.json
+
+# 用户生成的文件
+recordings/
+exports/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.spec
+
+# PyInstaller 产物
+dist/
+build/
+*.spec
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/settings.json
+.idea/

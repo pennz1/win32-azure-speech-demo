@@ -1,0 +1,9 @@
+# Phase 0: 主应用壳层
+flet>=0.21.0
+cryptography>=41.0.0
+
+# Phase 1: 录音转写 + AI 会议总结
+azure-cognitiveservices-speech>=1.37.0
+openai>=1.30.0
+sounddevice>=0.4.6
+scipy>=1.11.0
