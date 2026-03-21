@@ -322,6 +322,20 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **音色自动联动**：切换目标语言或性别时自动更新可选音色列表，invalidate synthesizer
 - **技术说明**：Azure Speech SDK 不支持自动检测说话人性别/音色匹配（没有内置的 speaker gender detection → TTS voice matching API），因此采用手动选择方案让用户自行指定男/女声
 
+## 发布记录
+
+### v2.0.0322.11 — GitHub Release（2026-03-22）
+- **推送到 GitHub**：`main` 分支，commit `d10a55e`
+- **Release**：[v2.0.0322.11](https://github.com/pennz1/win32-azure-speech-demo/releases/tag/v2.0.0322.11)
+- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.11.exe`（~131 MB）
+- **README 重构**：全面更新，反映 Phase 2 Voice Live + Phase 3 同声传译 + 自适应抖动缓冲 v3 + 回声门控等最新功能
+- **.gitignore 更新**：排除运行时日志（`voicelive_debug.log`、`_build_py_*.log`），允许 `AzureAISpeechDemo.spec`
+- **不推送的文件**：
+  - `_build_exe.py` / `_check_braces.py`：临时构建辅助脚本
+  - `voicelive_debug.log` / `_build_py_*.log`：运行时日志
+  - `dist/` / `build/`：构建产物
+  - `config.json`：加密配置
+
 ## Flet 0.82 迁移摘要（2026-03-21 本次完成）
 ### 背景
 Windows 机器上使用 Python 3.14 + Flet 0.82.2（pip 安装的最新版），Flet API 从 0.28 大幅变更。
