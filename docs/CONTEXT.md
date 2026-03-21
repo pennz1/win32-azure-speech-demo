@@ -20,9 +20,9 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 ## 文件结构
 ```
 ├── main.py                  # Flet 入口，壳层 + Tabs + 设置弹窗
-├── transcription_tab.py     # Phase 1: 录音转写 + AI 纪要 Tab
-├── interpreter_tab.py       # Phase 3: 同声传译 Live Interpreter Tab
-├── realtime_tab.py          # Phase 2: GPT-4o Realtime 实时语音对话 Tab
+├── transcription_tab.py     # Tab 1: 录音转写 + AI 纪要
+├── interpreter_tab.py       # Tab 3: 同声传译 Live Interpreter
+├── realtime_tab.py          # Tab 2: Voice Live 实时语音对话
 ├── audio_recorder.py        # 麦克风录音器 (sounddevice, 16kHz)
 ├── config_manager.py        # 加密配置读写 (Fernet)
 ├── app_paths.py             # 统一路径：dev 模式 / PyInstaller frozen
@@ -39,15 +39,15 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 └── CONTEXT.md               # ← 本文件
 ```
 
-## PRD 阶段总览
-| 阶段 | 模块 | 状态 |
-|------|------|------|
-| Phase 0 | 主应用壳层 + 导航框架 | ✅ 已完成 |
-| Phase 1 | 录音转写 + AI 会议总结 | ✅ 已完成 |
-| Phase 2 | VoiceLive 实时语音对话 | ✅ 已完成（已集成到 Tab 2，待 Azure 实际部署测试） |
-| Phase 3 | 同声传译 Live Interpreter | ✅ 已完成（已集成到 Tab 3，待 Azure 实际部署测试） |
+## 模块总览
+| 模块 | 状态 |
+|------|------|
+| 主应用壳层 + 导航框架 | ✅ 已完成 |
+| Tab 1 录音转写 + AI 会议总结 | ✅ 已完成 |
+| Tab 2 VoiceLive 实时语音对话 | ✅ 已完成 |
+| Tab 3 同声传译 Live Interpreter | ✅ 已完成 |
 
-## Phase 0 — 已完成
+## 主应用壳层 — 已完成
 - Flet 暗色主题 + 三 Tab 导航（会议转写 & 总结 / 实时对话 VoiceLive / 同声传译）
 - 顶部标题栏 + ⚙️ 设置按钮 + 🌗 主题切换
 - 底部状态栏（Azure 连接状态绿/黄/红 + 区域 + 版本）
@@ -65,7 +65,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - config_manager.py：Fernet 加密 API Key，config.json 持久化
 - app_paths.py：统一支持 dev 模式与 PyInstaller frozen 模式
 
-## Phase 1 — 已完成
+## Tab 1 录音转写 & AI 纪要 — 已完成
 - F1-01 音频文件上传（FilePicker async, .wav/.mp3/.m4a）
 - F1-02 实时麦克风录制（sounddevice → 16kHz mono .wav）
 - F1-03/04 Azure Speech 转写 + Diarization（ConversationTranscriber）
@@ -77,7 +77,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - F1-11 配置状态 Banner（4 态：全配置 / 仅 Speech / 仅 OpenAI / 未配置）
 - **Word-level 时间戳**（v2.0.0322.9）：`speech_config.request_word_level_timestamps()` 启用逐词偏移量/时长，提升时间精度
 - **语义分段**（v2.0.0322.9）：`Speech_SegmentationStrategy = "Semantic"`（SDK ≥1.41）基于语义智能断句，替代固定静音时长分段
-- **性能指标底栏**（v2.0.0322.9）：pill 标签式设计，与 Phase 2/3 一致
+- **性能指标底栏**（v2.0.0322.9）：pill 标签式设计，与其他 Tab 一致
   - **识别延迟**：最后一次 `recognizing` → `recognized` 时间差（ms），实时显示 + 平均值
   - **说话人数**：根据 Diarization Speaker ID 去重统计
   - **词数统计**：累计所有 `recognized` 事件的词数
@@ -107,7 +107,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - 卡片使用 `OUTLINE_VARIANT` 边框，AI 纪要区左侧 `PRIMARY` 色边框标识
   - 按钮均带图标 + 文字
 
-## Phase 2 — Voice Live 实时语音对话
+## Tab 2 Voice Live 实时语音对话
 ### 已完成
 - realtime_tab.py，基于 azure-ai-voicelive 1.1.0 (GA)，包含：
   - Voice Live WebSocket 连接管理（async with connect，独立 asyncio 线程）
@@ -129,7 +129,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - 模型下拉 / AI 角色预设 / 配置状态 Banner
   - **设置变更通知**：对话中修改任何设置时，SnackBar 提示"设置已更新，将在下次对话时生效"
   - **UI 布局重构**：
-    - hero_bar 顶栏：「开始对话」按钮左上角 + AI 状态 + 连接状态胶囊 + 清除按钮（对齐 Phase 1/3 布局风格，v2.0.0322.6）
+    - hero_bar 顶栏：「开始对话」按钮左上角 + AI 状态 + 连接状态胶囊 + 清除按钮（对齐其他 Tab 布局风格，v2.0.0322.6）
     - 可折叠设置面板（"对话设置"），点击收起/展开，默认展开
     - 对话区占据主体空间（expand），scheme 色 `SURFACE_CONTAINER_LOWEST` 背景
     - 配置 Banner 仅在未配置时显示（已配置时 `visible=False`）
@@ -141,7 +141,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **全局 UI 统一**：所有模块按钮统一使用 Container+Text 样式
 - **Emoji 精简**：全局去除按钮和文本描述中的 emoji，仅保留对话气泡中的 👤/🤖 作为说话人标识
 - **性能指标 UI 重构**（v2.0.0322.7）：
-  - 从大数字卡片式改为紧凑 pill 标签式，对齐 Phase 3 延迟 UI 设计风格
+  - 从大数字卡片式改为紧凑 pill 标签式，对齐同声传译 Tab 延迟 UI 设计风格
   - 性能指标移至底部信息条（bottom_bar），与清除按钮并排，给对话窗口更多显示空间
   - TTFT pill（首字节延迟 + avg）+ E2E pill（端到端延迟 + avg）+ Token pill（累计消耗）
   - 布局从 `[config_banner, hero_bar, settings_panel, perf_panel, chat_panel]` 改为 `[config_banner, hero_bar, settings_panel, chat_panel, bottom_bar]`
@@ -212,8 +212,8 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **与服务端回声消除的关系**：服务端 `server_echo_cancellation` 对大延迟（1000ms+ 预缓冲）场景效果不佳，客户端门控作为补充层
 
 ### 导出功能改进 (v2.0.0322.9)
-- **Phase 1 会议纪要导出**：`export_txt()` 改为 `async def`，使用 `FilePicker.save_file()` 弹出系统"另存为"对话框，用户自选保存位置和文件名
-- **Phase 3 传译记录导出**：`_export_record()` 同理改为 `async def` + `save_file()`
+- **会议纪要导出**：`export_txt()` 改为 `async def`，使用 `FilePicker.save_file()` 弹出系统“另存为”对话框，用户自选保存位置和文件名
+- **传译记录导出**：`_export_record()` 同理改为 `async def` + `save_file()`
 - **旧方案**：自动保存到 `get_data_dir("exports")/` 固定目录，用户不知道文件存哪
 - **新方案**：弹出系统文件保存对话框，默认文件名带时间戳（`meeting_notes_20260322_xxxx.txt` / `translation_20260322_xxxx.txt`），用户可自选任意位置
 - **取消处理**：用户取消保存对话框时 SnackBar 提示"已取消导出"
@@ -235,7 +235,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **❗ IconButton 没有 content 参数**：Flet 0.82 的 `ft.IconButton` 不接受 `content` 参数。必须使用 `icon=ft.Icons.XXX` 属性设置图标
 - **❗ 音频重构后定义遗漏**（v2.0.0322.10）：v2.0.0322.9 将音频播放从 `Queue[_PlaybackPacket]` 重构为 `_AudioBuffer` 连续字节缓冲，但 `OUT_BLOCKSIZE` 常量和 `_AudioBuffer` 类定义未写入模块级作用域（仍保留旧的 `_PlaybackPacket` 类），导致运行时 `NameError: name 'OUT_BLOCKSIZE' is not defined` 和 `NameError: name 'audio_buf' is not defined`。修复：将 `_AudioBuffer` 类和 `OUT_BLOCKSIZE = 4800` 定义放在模块级（`build_realtime_tab` 函数外），移除旧的 `_PlaybackPacket` 类和 `import queue`
 
-## Phase 3 — 已完成
+## Tab 3 同声传译 Live Interpreter — 已完成
 ### 已完成
 - interpreter_tab.py 全功能创建，包含：
   - Azure Speech Translation 实时翻译（TranslationRecognizer + 连续识别）
@@ -252,7 +252,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - 会话记录导出（原文+译文双栏 .txt 文件）
   - 清除记录功能
 - main.py 已集成 interpreter_tab 到 Tab 3
-- 设置弹窗已有 Speech API Key 和 Region 配置（Phase 3 复用）
+- 设置弹窗已有 Speech API Key 和 Region 配置（复用）
 
 ### UI 重构（2026-03-22）
 **设计目标**：① 一眼看懂"实时同声传译" ② 一眼看出"Azure = 低延迟" ③ 操作极简"开始/停止"
@@ -298,7 +298,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - **视觉效果**：用户说话时，原文和译文同时在字幕区"打字机式"流式显现，说完后自动变为正常样式
   - **延迟感知**：显著降低"说完到看到译文"的感知延迟，因为译文在说话过程中就已开始显示
   - **技术细节**：移除了独立的 `_interim_source_container` / `_interim_target_container`，改用 `_live` 状态字典跟踪当前 live bubble（含 Container 和 Text 引用）
-- **设置变更通知机制**（对齐 Phase 2 方案）：
+- **设置变更通知机制**（对齐 Voice Live 方案）：
   - 切换音色性别/具体音色/TTS开关 → SnackBar 通知"设置已更新，下一句传译时生效"（传译中）或"设置已更新"（空闲）
   - 音色变更通过 invalidate synthesizer 实现，下一次 TTS 调用时自动重建
 
@@ -328,7 +328,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **推送到 GitHub**：`main` 分支，commit `d10a55e`
 - **Release**：[v2.0.0322.11](https://github.com/pennz1/win32-azure-speech-demo/releases/tag/v2.0.0322.11)
 - **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.11.exe`（~131 MB）
-- **README 重构**：全面更新，反映 Phase 2 Voice Live + Phase 3 同声传译 + 自适应抖动缓冲 v3 + 回声门控等最新功能
+- **README 重构**：全面更新，反映 Voice Live + 同声传译 + 自适应抖动缓冲 v3 + 回声门控等最新功能
 - **.gitignore 更新**：排除运行时日志（`voicelive_debug.log`、`_build_py_*.log`），允许 `AzureAISpeechDemo.spec`
 - **不推送的文件**：
   - `_build_exe.py` / `_check_braces.py`：临时构建辅助脚本
@@ -533,19 +533,19 @@ cd "d:\Users\项目\win32-azure-speech-demo"
 
 | 日期 | 版本 | 本次完成内容 | 负责人 |
 |------|------|-------------|--------|
-| 2026-03-20 | v0.1 | Phase 0 壳层 + Phase 1 全部功能主体实现 | 张鹏程 |
+| 2026-03-20 | v0.1 | 应用壳层 + 录音转写全功能实现 | 张鹏程 |
 | 2026-03-20 | v0.2 | 修复 Banner 4 态、pubsub 回调、转写缺 Key 提示、按钮 tooltip | 张鹏程 |
 | 2026-03-21 | v0.3 | 初始化 Git、本地首提、创建 GitHub 仓库并完成首推；补充 Windows 接续开发说明 | 张鹏程 |
 | 2026-03-21 | v0.4 | 将 build.spec 纳入版本控制，修复 Windows/CI 打包配置缺失风险 | 张鹏程 |
 | 2026-03-21 | v0.5 | **Flet 0.82 全量迁移**：修复 Tabs/FilePicker/Clipboard/SnackBar/Dialog/Button 等 12 处 API 变更；删除 Python 3.9 monkey-patch；Windows 冒烟测试通过；`flet pack` 打包 .exe 成功（136MB）；创建 README.md；更新 requirements.txt 和 build.spec | Copilot |
-| 2026-03-21 | v0.7 | Phase 2 realtime_tab 集成到 main.py Tab 2（修复 `_safe_update` 作用域问题）；Phase 3 interpreter_tab.py 全功能开发并集成到 Tab 3；config_manager 添加 `realtime_deployment` 默认值；三 Tab 冒烟测试通过 | Copilot |
+| 2026-03-21 | v0.7 | realtime_tab 集成到 main.py Tab 2（修复 `_safe_update` 作用域问题）；interpreter_tab.py 全功能开发并集成到 Tab 3；config_manager 添加 `realtime_deployment` 默认值；三 Tab 冒烟测试通过 | Copilot |
 | 2026-03-21 | v0.8 | 修复 Flet 0.82 Service 注册问题：FilePicker/Clipboard 从 `page.overlay` 迁移到 `page.services`（解决 "Unknown control" 报错）；修复中文字体渲染（`page.fonts` 需指向字体文件路径 msyh.ttc，不能用字体名）；全面排查并消除所有 `page.overlay` 用法 | Copilot |
-| 2026-03-21 | v0.9 | **Phase 2 性能与体验大修**：① 音频卡顿根治（事件处理不再调用 page.update，用 _mark_dirty + 后台刷新线程）；② 气泡顺序修复（用户占位气泡机制）；③ 移除指标面板，对话区全宽；④ 按钮用 Container+Text 替代 ft.Button | Copilot |
-| 2026-03-22 | v2.0.0322.1 | **Phase 3 传译优化**：① 修复停止传译 TTS 音频未停止（stop_speaking_async）；② 多音色可选功能（6语言×2性别×3音色=36种）；③ 翻译延迟优化（分段静音超时300ms + Pre-connect TTS + 延迟指标优化）；④ 版本号 v2.0.0322.1 | Copilot |
-| 2026-03-22 | v2.0.0322.2 | **流式翻译+音色修复**：① 边说边译 Live Bubble 流式字幕（实时显示识别和翻译中间结果）；② 修复 Dropdown on_change→on_select 静默失败 BUG（男声音色/目标语言切换无效）；③ 设置变更 SnackBar 通知机制（对齐 Phase 2） | Copilot |
-| 2026-03-22 | v2.0.0322.4 | **主题切换+性能指标**：① 深色/浅色/跟随系统三种主题循环切换（图标式，点击立即生效，持久化到 config）；② Phase 2 性能表现区域（TTFT 首字节延迟大数字+平均、端到端延迟+平均、Token 消耗统计）；③ 基于 Voice Live SDK RESPONSE_DONE.response.usage 提取 token 统计 | Copilot |
+| 2026-03-21 | v0.9 | **Voice Live 性能与体验大修**：① 音频卡顿根治（事件处理不再调用 page.update，用 _mark_dirty + 后台刷新线程）；② 气泡顺序修复（用户占位气泡机制）；③ 移除指标面板，对话区全宽；④ 按钮用 Container+Text 替代 ft.Button | Copilot |
+| 2026-03-22 | v2.0.0322.1 | **传译优化**：① 修复停止传译 TTS 音频未停止（stop_speaking_async）；② 多音色可选功能（6语言×2性别×3音色=36种）；③ 翻译延迟优化（分段静音超时300ms + Pre-connect TTS + 延迟指标优化）；④ 版本号 v2.0.0322.1 | Copilot |
+| 2026-03-22 | v2.0.0322.2 | **流式翻译+音色修复**：① 边说边译 Live Bubble 流式字幕（实时显示识别和翻译中间结果）；② 修复 Dropdown on_change→on_select 静默失败 BUG（男声音色/目标语言切换无效）；③ 设置变更 SnackBar 通知机制（对齐 Voice Live） | Copilot |
+| 2026-03-22 | v2.0.0322.4 | **主题切换+性能指标**：① 深色/浅色/跟随系统三种主题循环切换（图标式，点击立即生效，持久化到 config）；② Voice Live 性能表现区域（TTFT 首字节延迟大数字+平均、端到端延迟+平均、Token 消耗统计）；③ 基于 Voice Live SDK RESPONSE_DONE.response.usage 提取 token 统计 | Copilot |
 | 2026-03-22 | v2.0.0322.5 | **NSIS 安装包+DLL 保护**：① NSIS 安装向导（欢迎页→目录→安装→完成，含开始菜单/桌面快捷方式、卸载功能）；② DLL 依赖启动检查（MSVCP140/VCRUNTIME140/VCRUNTIME140_1，缺失弹 MessageBox 指引安装 VC++ Redist）；③ ICO 图标支持（PyInstaller + NSIS 双路径）；④ 一键构建脚本 build_installer.ps1（含安全检查）；⑤ 安装包含 VC++ 运行库检测提示 | Copilot |
-| 2026-03-22 | v2.0.0322.6 | **Phase 2 UI 统一+Banner 优化**：① Phase 2 布局重构（去掉标题，"开始对话"按钮挪至左上角 hero_bar，对齐 Phase 1/3 布局风格）；② Tab 标签"实时对话 GPT-4o"改为"实时对话 VoiceLive"；③ Phase 2 配置 Banner 改为仅异常时显示（已配置时 visible=False，对齐其他 Tab） | Copilot |
-| 2026-03-22 | v2.0.0322.7 | **全局 UI 样式统一**：① 主功能按钮统一规范（border_radius=25 圆角胶囊、padding=h32v12、text_size=15、icon_size=20、BOLD），Phase 1/2/3 全对齐；② Phase 2 开始对话按钮增加 MIC 图标（与 Phase 1/3 对齐）；③ Phase 3 主按钮去除 shadow 和过大尺寸；④ Config Banner 三 Tab 统一（border_radius=8、icon 18px、text 13px、padding h14v8、spacing 10）；⑤ Phase 3 导出按钮增加图标统一风格（icon+text、border_radius=8）；⑥ 设置弹窗保存按钮 border_radius 20→8 统一方角风格；⑦ Phase 1 外层 padding/spacing 对齐 Phase 2/3（24→Padding(l16,t12,r16,b8)、spacing 16→8） | Copilot |
-| 2026-03-22 | v2.0.0322.8 | **浅色主题优化+导出弹窗**：① 全面替换硬编码深色 hex 颜色为 Flet MD3 ColorScheme token，深浅主题自动适配；② Phase 1/3 导出改为 FilePicker.save_file() 系统"另存为"对话框；③ Phase 2 自适应抖动缓冲 v2（连续字节缓冲 + 淡入淡出 PLC + OUT_BLOCKSIZE 4800） | Copilot |
-| 2026-03-22 | v2.0.0322.9 | **Phase 1 增强**：① 移除实时转录 LIVE 文本指示器（仅保留 subtle 红色小圆点）；② 微软文档研究：启用 word-level timestamps（`request_word_level_timestamps()`）+ 语义分段（`Speech_SegmentationStrategy=Semantic`）；③ 性能指标底栏（识别延迟+avg、说话人数、词数、音频时长）pill 标签式 UI 匹配 Phase 2/3 设计；④ 修复 realtime_tab.py 缺失 `import queue`；⑤ 设置弹窗 UI 调整：Region 下拉移至 Speech Key 下方、Voice Live 标题去除"(Phase 2)"；⑥ 生成纪要按钮未转写时置灰；⑦ 清除转写结果按钮；⑧ 复制按钮拆分为「复制原文」+「复制纪要」；⑨ 文件选择后实时转录按钮互斥置灰+清除已选文件按钮 | Copilot |
+| 2026-03-22 | v2.0.0322.6 | **UI 统一+Banner 优化**：① Voice Live 布局重构（去掉标题，"开始对话"按钮挪至左上角 hero_bar，对齐其他 Tab 布局风格）；② Tab 标签"实时对话 GPT-4o"改为"实时对话 VoiceLive"；③ Voice Live 配置 Banner 改为仅异常时显示（已配置时 visible=False，对齐其他 Tab） | Copilot |
+| 2026-03-22 | v2.0.0322.7 | **全局 UI 样式统一**：① 主功能按钮统一规范（border_radius=25 圆角胶囊、padding=h32v12、text_size=15、icon_size=20、BOLD），三 Tab 全对齐；② Voice Live 开始对话按钮增加 MIC 图标（与其他 Tab 对齐）；③ 传译主按钮去除 shadow 和过大尺寸；④ Config Banner 三 Tab 统一（border_radius=8、icon 18px、text 13px、padding h14v8、spacing 10）；⑤ 传译导出按钮增加图标统一风格（icon+text、border_radius=8）；⑥ 设置弹窗保存按钮 border_radius 20→8 统一方角风格；⑦ Tab 1 外层 padding/spacing 对齐 Voice Live/3（24→Padding(l16,t12,r16,b8)、spacing 16→8） | Copilot |
+| 2026-03-22 | v2.0.0322.8 | **浅色主题优化+导出弹窗**：① 全面替换硬编码深色 hex 颜色为 Flet MD3 ColorScheme token，深浅主题自动适配；② Tab 1/3 导出改为 FilePicker.save_file() 系统"另存为"对话框；③ Voice Live 自适应抖动缓冲 v2（连续字节缓冲 + 淡入淡出 PLC + OUT_BLOCKSIZE 4800） | Copilot |
+| 2026-03-22 | v2.0.0322.9 | **Tab 1 增强**：① 移除实时转录 LIVE 文本指示器（仅保留 subtle 红色小圆点）；② 微软文档研究：启用 word-level timestamps（`request_word_level_timestamps()`）+ 语义分段（`Speech_SegmentationStrategy=Semantic`）；③ 性能指标底栏（识别延迟+avg、说话人数、词数、音频时长）pill 标签式 UI 匹配其他 Tab 设计；④ 修复 realtime_tab.py 缺失 `import queue`；⑤ 设置弹窗 UI 调整：Region 下拉移至 Speech Key 下方、Voice Live 标题去除"(Phase 2)"；⑥ 生成纪要按钮未转写时置灰；⑦ 清除转写结果按钮；⑧ 复制按钮拆分为「复制原文」+「复制纪要」；⑨ 文件选择后实时转录按钮互斥置灰+清除已选文件按钮 | Copilot |

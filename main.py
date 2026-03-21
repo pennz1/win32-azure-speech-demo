@@ -1,5 +1,5 @@
 """
-Azure AI 语音演示台 — 主应用壳层（Phase 0）
+Azure AI 语音演示台 — 主应用壳层
 Flet Material Design 3 · 暗色主题 · Azure 蓝 #0078D4
 """
 
@@ -53,6 +53,15 @@ VERSION = "v2.0.0322.11"
 def main(page: ft.Page):
     # ── 主题 & 窗口 ──────────────────────────────────────────────
     page.title = "Azure AI 语音演示台"
+
+    # 设置窗口图标
+    import os as _os
+    if getattr(sys, "frozen", False):
+        _icon_path = _os.path.join(sys._MEIPASS, "app.ico")
+    else:
+        _icon_path = _os.path.join(_os.path.dirname(__file__), "app.ico")
+    if _os.path.isfile(_icon_path):
+        page.window.icon = _icon_path
     page.fonts = {
         "MicrosoftYaHei": "C:/Windows/Fonts/msyh.ttc",
     }

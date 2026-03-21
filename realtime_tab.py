@@ -1,5 +1,5 @@
 """
-Phase 2 — Azure Voice Live 实时语音对话 Tab
+Azure Voice Live 实时语音对话 Tab
 SDK: azure-ai-voicelive 1.1.0 (GA)
 架构: Voice Live WebSocket → 麦克风 PCM16 24kHz → 流式语音回复
 关键设计:

@@ -1,5 +1,5 @@
 """
-Phase 3 — 同声传译 Live Interpreter Tab
+同声传译 Live Interpreter Tab
 功能：麦克风实时采集 → Azure Speech Translation（自动语言检测）→ 双栏字幕 + TTS 播放
 """
 

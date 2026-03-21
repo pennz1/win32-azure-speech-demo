@@ -50,8 +50,11 @@ if (-not $SkipBuild) {
     $buildArgs = @("_build_exe.py", "--name", $AppName, "--version", $Version)
     if ($IconPath) { $buildArgs += @("--icon", $IconPath) }
 
+    $ErrorActionPreference = "Continue"
     & "$Venv\python.exe" -u @buildArgs 2>&1 | ForEach-Object { Write-Host "  $_" }
-    if ($LASTEXITCODE -ne 0) {
+    $buildExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($buildExit -ne 0) {
         Write-Host "ERROR: PyInstaller 构建失败" -ForegroundColor Red
         exit 1
     }
@@ -107,8 +110,11 @@ if (-not $SkipInstaller) {
 
     if ($makensis) {
         Write-Host "  NSIS: $makensis" -ForegroundColor Green
+        $ErrorActionPreference = "Continue"
         & $makensis /INPUTCHARSET UTF8 "$ProjectDir\installer.nsi" 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $nsisExit = $LASTEXITCODE
+        $ErrorActionPreference = "Stop"
+        if ($nsisExit -eq 0) {
             $setupFile = "dist\${AppName}_Setup_$Version.exe"
             if (Test-Path "$ProjectDir\$setupFile") {
                 $setupSize = [math]::Round((Get-Item "$ProjectDir\$setupFile").Length / 1MB, 1)

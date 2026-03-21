@@ -1,7 +1,7 @@
 """
-Phase 1 — 会议转写 & AI 纪要生成 Tab
+会议转写 & AI 纪要生成 Tab
 功能：实时麦克风流式转写(Diarization) + 音频文件转写 → GPT-4o 流式生成纪要
-UI 更新：page.run_task() 调度到 Flet 事件循环（线程安全，同 Phase 2/3）
+UI 更新：page.run_task() 调度到 Flet 事件循环（线程安全）
 """
 
 import datetime

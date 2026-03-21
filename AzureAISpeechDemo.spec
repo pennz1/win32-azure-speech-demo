@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('D:\\Users\\项目\\win32-azure-speech-demo\\app.ico', '.')],
     hiddenimports=['azure.cognitiveservices.speech', 'openai', 'sounddevice', 'scipy.io.wavfile', 'cryptography.fernet', 'azure.ai.voicelive', 'azure.ai.voicelive.aio', 'azure.ai.voicelive.models', 'numpy', 'azure.core.credentials', 'aiohttp'],
     hookspath=[],
     hooksconfig={},
@@ -35,6 +35,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    version='C:\\Users\\Penn\\AppData\\Local\\Temp\\358e0335-db14-4462-b26f-c7227bed0de8',
-    icon=['app.ico'],
+    version='C:\\Users\\Penn\\AppData\\Local\\Temp\\f9475102-7f26-4b94-ac82-05c3e34ed26a',
+    icon=['D:\\Users\\项目\\win32-azure-speech-demo\\app.ico'],
 )
