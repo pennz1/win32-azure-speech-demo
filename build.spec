@@ -1,9 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller 打包配置文件
-# 用法（在 Windows 机器上运行）：
-#   pip install pyinstaller
-#   pyinstaller build.spec
+#
+# ===== 推荐方式（Flet 0.82+）=====
+# 使用 flet pack 命令自动处理 Flet 运行时依赖：
+#   flet pack main.py -n AzureAISpeechDemo \
+#       --product-name "Azure AI Speech Demo" \
+#       --product-version "2.0.0" --file-version "2.0.0.0" \
+#       --hidden-import azure.cognitiveservices.speech \
+#       --hidden-import openai \
+#       --hidden-import sounddevice \
+#       --hidden-import scipy.io.wavfile \
+#       --hidden-import cryptography.fernet -y
 # 产出位置：dist/AzureAISpeechDemo.exe
+#
+# ===== 备用方式（手动 PyInstaller）=====
+# 如需自定义打包细节，可直接运行：
+#   pyinstaller build.spec
+# 注意：需手动包含 flet_desktop 运行时资源
 
 import sys
 from pathlib import Path

@@ -18,14 +18,18 @@ CONFIG_FILE = APP_DIR / "config.json"
 KEY_DIR = Path.home() / ".azure_ai_demo"
 KEY_FILE = KEY_DIR / ".encryption_key"
 
-SENSITIVE_FIELDS = {"speech_api_key", "openai_api_key"}
+SENSITIVE_FIELDS = {"speech_api_key", "openai_api_key", "voicelive_api_key"}
 
 DEFAULT_CONFIG = {
     "speech_api_key": "",
     "openai_endpoint": "",
     "openai_api_key": "",
     "openai_deployment": "gpt-4o",
+    "realtime_deployment": "gpt-4o-realtime-preview",
+    "voicelive_endpoint": "",
+    "voicelive_api_key": "",
     "region": "eastasia",
+    "theme_mode": "dark",
 }
 
 

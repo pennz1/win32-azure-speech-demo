@@ -4,6 +4,7 @@
 
 import datetime
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -26,6 +27,7 @@ class AudioRecorder:
         self._recording = False
         self._lock = threading.Lock()
         self._elapsed = 0.0
+        self._start_time: Optional[float] = None
 
     @property
     def is_recording(self) -> bool:
@@ -35,15 +37,20 @@ class AudioRecorder:
     def elapsed_seconds(self) -> float:
         if not self._recording:
             return self._elapsed
-        return len(np.concatenate(self._frames)) / SAMPLE_RATE if self._frames else 0.0
+        if self._start_time is not None:
+            import time
+            return time.time() - self._start_time
+        return 0.0
 
     def start(self):
         """开始录音。"""
+        import time as _time
         with self._lock:
             if self._recording:
                 return
             self._frames = []
             self._recording = True
+            self._start_time = _time.time()
 
         def _callback(indata, frames, time_info, status):
             if self._recording:

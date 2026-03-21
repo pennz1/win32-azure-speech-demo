@@ -5,6 +5,11 @@ config.json
 recordings/
 exports/
 
+# 运行时日志
+voicelive_debug.log
+_build_py_stderr.log
+_build_py_stdout.log
+
 # Python
 __pycache__/
 *.py[cod]
@@ -16,12 +21,7 @@ dist/
 build/
 *.spec
 !build.spec
-
-# PyInstaller 产物
-dist/
-build/
-*.spec
-!build.spec
+!AzureAISpeechDemo.spec
 
 # 虚拟环境
 .venv/
