@@ -15,11 +15,13 @@ __pycache__/
 dist/
 build/
 *.spec
+!build.spec
 
 # PyInstaller 产物
 dist/
 build/
 *.spec
+!build.spec
 
 # 虚拟环境
 .venv/

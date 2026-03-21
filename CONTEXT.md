@@ -24,7 +24,7 @@ Flet (Material Design 3) 暗色主题，Azure 蓝 #0078D4。
 ├── app_paths.py             # 统一路径：dev 模式 / PyInstaller frozen
 ├── config.json              # 运行时加密配置（.gitignore 已排除）
 ├── requirements.txt         # 依赖清单
-├── build.spec               # PyInstaller 打包配置（当前仅本地存在，尚未纳入 Git）
+├── build.spec               # PyInstaller 打包配置
 ├── .github/workflows/       # GitHub Actions Windows 打包
 ├── Azure_AI_Demo_PRD_v2.0.md
 ├── ISSUES.md                # 问题追踪
@@ -71,6 +71,7 @@ Flet (Material Design 3) 暗色主题，Azure 蓝 #0078D4。
 - 已创建 GitHub 远程仓库：https://github.com/pennz1/win32-azure-speech-demo
 - 当前远程 origin：https://github.com/pennz1/win32-azure-speech-demo.git
 - 已完成首个提交并推送：b8cdde9 (Initial commit)
+- 已将 build.spec 纳入版本控制，Windows 与 GitHub Actions 可复用统一打包配置
 - config.json 继续保留在 .gitignore 中，未上传到 GitHub
 - 当前工作区无未提交代码变更，可直接在 Windows clone 后继续开发
 
@@ -79,7 +80,6 @@ Flet (Material Design 3) 暗色主题，Azure 蓝 #0078D4。
 - 转写预估剩余时间（F1-05 P1）未实现
 - macOS 上 ConversationTranscriber Diarization 可能有限制，需 Windows 验证
 - 录音权限：macOS 需手动授权麦克风
-- GitHub Actions 工作流引用 build.spec，但该文件当前未入库；在 Windows 或 CI 上做打包前，需要先提交 build.spec 或调整工作流
 
 ## 工程化状态
 | 项目 | 状态 |
@@ -87,8 +87,8 @@ Flet (Material Design 3) 暗色主题，Azure 蓝 #0078D4。
 | .gitignore | ✅ 已创建 |
 | Git 本地仓库 | ✅ 已创建 |
 | GitHub 远程仓库 | ✅ 已创建并已首推 |
-| build.spec | ⚠️ 本地存在，但尚未纳入 Git |
-| GitHub Actions (Windows) | ⚠️ 工作流已创建，但当前受 build.spec 缺失影响 |
+| build.spec | ✅ 已纳入 Git |
+| GitHub Actions (Windows) | ✅ 工作流与打包配置已对齐 |
 | README / onboarding 文档 | ❌ 待补充 |
 | 冒烟测试 | ❌ 无 |
 
@@ -113,7 +113,6 @@ Flet (Material Design 3) 暗色主题，Azure 蓝 #0078D4。
 - 首次在 Windows 上重点验证：麦克风权限、ConversationTranscriber 分离说话人效果、录音文件落盘、AI 纪要流式输出
 
 ### 5. 接下来优先事项
-- 优先把 build.spec 纳入 Git，否则 GitHub Actions 和 Windows 新环境都无法直接复用现有打包配置
 - 补 README / onboarding，避免后续在新机器重复排查环境问题
 - 在 Windows 真机做一次完整冒烟测试，重点覆盖录音、转写、纪要、导出四条链路
 
@@ -131,3 +130,4 @@ Flet (Material Design 3) 暗色主题，Azure 蓝 #0078D4。
 | 2026-03-20 | v0.1 | Phase 0 壳层 + Phase 1 全部功能主体实现 | 张鹏程 |
 | 2026-03-20 | v0.2 | 修复 Banner 4 态、pubsub 回调、转写缺 Key 提示、按钮 tooltip | 张鹏程 |
 | 2026-03-21 | v0.3 | 初始化 Git、本地首提、创建 GitHub 仓库并完成首推；补充 Windows 接续开发说明 | 张鹏程 |
+| 2026-03-21 | v0.4 | 将 build.spec 纳入版本控制，修复 Windows/CI 打包配置缺失风险 | 张鹏程 |
