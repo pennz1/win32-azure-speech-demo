@@ -528,9 +528,16 @@ def build_interpreter_tab(page: ft.Page):
             state["synthesizer"] = None
 
     def _speak_tts(text: str):
-        """使用 Azure Neural TTS 朗读译文（复用连接）。"""
+        """使用 Azure Neural TTS 朗读译文（复用连接）。播放期间暂停识别，避免回声循环。"""
         if not state["running"]:
             return
+        # 暂停识别器，避免麦克风拾取扬声器声音导致回声循环
+        recognizer = state.get("recognizer")
+        if recognizer:
+            try:
+                recognizer.stop_continuous_recognition()
+            except Exception:
+                pass
         try:
             synth = _get_or_create_synthesizer()
             if synth:
@@ -541,6 +548,14 @@ def build_interpreter_tab(page: ft.Page):
             _invalidate_synthesizer()
         finally:
             state["current_tts_future"] = None
+            # TTS 播完后等待短暂冷却，然后恢复识别
+            import time as _time
+            _time.sleep(0.3)
+            if state["running"] and recognizer:
+                try:
+                    recognizer.start_continuous_recognition()
+                except Exception:
+                    pass
 
     # ── 开始/停止传译 ────────────────────────────────────────────
     def _start_translation():

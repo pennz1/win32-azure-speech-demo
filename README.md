@@ -296,7 +296,6 @@ win32-azure-speech-demo/
 │   └── Azure_AI_Demo_PRD_v2.0.md  # 产品需求文档（PRD）：4 个 Phase 的完整需求
 │
 ├── .gitignore               # Git 忽略规则（排除 config.json、构建产物、日志等）
-├── .github/workflows/       # GitHub Actions 自动构建工作流
 └── .venv/                   # [本地] Python 虚拟环境（不提交 Git）
 ```
 

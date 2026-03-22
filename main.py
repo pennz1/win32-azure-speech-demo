@@ -47,7 +47,7 @@ from transcription_tab import build_transcription_tab
 from realtime_tab import build_realtime_tab
 from interpreter_tab import build_interpreter_tab
 
-VERSION = "v2.0.0322.13"
+VERSION = "v2.0.0322.14"
 
 
 def main(page: ft.Page):
@@ -93,9 +93,9 @@ def main(page: ft.Page):
     )
 
     # 加载主题偏好
-    _saved_theme = load_config().get("theme_mode", "dark")
+    _saved_theme = load_config().get("theme_mode", "system")
     _theme_map = {"dark": ft.ThemeMode.DARK, "light": ft.ThemeMode.LIGHT, "system": ft.ThemeMode.SYSTEM}
-    page.theme_mode = _theme_map.get(_saved_theme, ft.ThemeMode.DARK)
+    page.theme_mode = _theme_map.get(_saved_theme, ft.ThemeMode.SYSTEM)
 
     page.window.width = 1200
     page.window.height = 800
@@ -152,11 +152,20 @@ def main(page: ft.Page):
         threading.Thread(target=_check, daemon=True).start()
 
     # ── 设置弹窗 ─────────────────────────────────────────────────
+    _KEY_MASK = "•" * 16  # API Key 占位符，不显示明文
+
+    def _mask_key(key: str) -> str:
+        """API Key 已保存则显示混淆占位符，不允许复制明文。"""
+        if key:
+            return _KEY_MASK
+        return ""
+
     speech_key_field = ft.TextField(
         label="Azure Speech API Key",
-        value=config.get("speech_api_key", ""),
+        value=_mask_key(config.get("speech_api_key", "")),
         password=True,
-        can_reveal_password=True,
+        can_reveal_password=False,
+        hint_text="输入新 Key 替换，留空保持不变",
     )
     openai_endpoint_field = ft.TextField(
         label="Azure OpenAI Endpoint",
@@ -165,9 +174,10 @@ def main(page: ft.Page):
     )
     openai_key_field = ft.TextField(
         label="Azure OpenAI API Key",
-        value=config.get("openai_api_key", ""),
+        value=_mask_key(config.get("openai_api_key", "")),
         password=True,
-        can_reveal_password=True,
+        can_reveal_password=False,
+        hint_text="输入新 Key 替换，留空保持不变",
     )
     openai_deployment_field = ft.TextField(
         label="GPT 部署名称 (Deployment Name)",
@@ -181,9 +191,10 @@ def main(page: ft.Page):
     )
     voicelive_key_field = ft.TextField(
         label="Voice Live API Key",
-        value=config.get("voicelive_api_key", ""),
+        value=_mask_key(config.get("voicelive_api_key", "")),
         password=True,
-        can_reveal_password=True,
+        can_reveal_password=False,
+        hint_text="输入新 Key 替换，留空保持不变",
     )
     region_field = ft.Dropdown(
         label="部署区域 (Region)",
@@ -205,13 +216,20 @@ def main(page: ft.Page):
         page.pop_dialog()
 
     def _save_settings(e):
+        # API Key: 只有用户输入了新值才替换，占位符或空值保持原值
+        def _resolve_key(field_value: str, config_key: str) -> str:
+            v = field_value.strip()
+            if v == _KEY_MASK or v == "":
+                return config.get(config_key, "")  # 保持原值
+            return v  # 用户输入了新 Key
+
         new_config = {
-            "speech_api_key": speech_key_field.value.strip(),
+            "speech_api_key": _resolve_key(speech_key_field.value, "speech_api_key"),
             "openai_endpoint": openai_endpoint_field.value.strip(),
-            "openai_api_key": openai_key_field.value.strip(),
+            "openai_api_key": _resolve_key(openai_key_field.value, "openai_api_key"),
             "openai_deployment": openai_deployment_field.value.strip() or "gpt-4o",
             "voicelive_endpoint": voicelive_endpoint_field.value.strip(),
-            "voicelive_api_key": voicelive_key_field.value.strip(),
+            "voicelive_api_key": _resolve_key(voicelive_key_field.value, "voicelive_api_key"),
             "region": region_field.value,
         }
         save_config(new_config)
@@ -265,12 +283,12 @@ def main(page: ft.Page):
     )
 
     def _open_settings(e):
-        speech_key_field.value = config.get("speech_api_key", "")
+        speech_key_field.value = _mask_key(config.get("speech_api_key", ""))
         openai_endpoint_field.value = config.get("openai_endpoint", "")
-        openai_key_field.value = config.get("openai_api_key", "")
+        openai_key_field.value = _mask_key(config.get("openai_api_key", ""))
         openai_deployment_field.value = config.get("openai_deployment", "gpt-4o")
         voicelive_endpoint_field.value = config.get("voicelive_endpoint", "")
-        voicelive_key_field.value = config.get("voicelive_api_key", "")
+        voicelive_key_field.value = _mask_key(config.get("voicelive_api_key", ""))
         region_field.value = config.get("region", "eastasia")
         page.show_dialog(settings_dialog)
 

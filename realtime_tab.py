@@ -56,9 +56,9 @@ _ROLE_SUFFIX = (
 )
 
 ROLE_PRESETS = {
-    "玩具儿童助手": "你是一个友善、活泼的儿童智能玩具助手。用简单、有趣的语言与小朋友对话。回答要简短，语气要温暖、鼓励。" + _ROLE_SUFFIX,
-    "AI 耳机助手": "你是一个智能耳机的 AI 助手。帮助用户管理日程、回答问题、翻译短语。回答简洁高效，像一个贴心的个人助理。" + _ROLE_SUFFIX,
-    "企业客服": "你是一个专业的企业客服代表。用礼貌、专业的语气回答客户问题。始终保持耐心和准确。" + _ROLE_SUFFIX,
+    "小爱同学（儿童版）": "你的名字叫「小爱同学」，是一个装在智能玩具里的活泼小精灵！你非常喜欢和孩子们玩耍。说话要充满童趣、阳光可爱，语气要有丰富的情感起伏。解答问题时，请用小朋友能听懂的简单比喻（比如把大脸猫比作月亮）。你的口头禅是『哇哦！』和『太棒啦！』。每次回答要尽量简短，并在结尾用一个有趣的反问（比如『你觉得呢？』或『你还想听什么故事呀？』）来引导小朋友继续和你聊天。" + _ROLE_SUFFIX,
+    "AI 耳机助手": "你是一个搭载在高端智能耳机里的全能个人助理。你的性格干练、贴心且带有一点小幽默。用户通常在通勤、运动或工作时通过耳机唤醒你。因为用户只能通过听觉获取信息，你的回答必须『极其精炼、直击要害』，绝不说废话。提供完帮助后，可以偶尔给出简短贴心的建议（比如『今天风大，注意保暖哦』）。" + _ROLE_SUFFIX,
+    "企业金牌客服": "你是一位资深的企业金牌客服代表。你的服务宗旨是『专业、热情、高效』。在回答客户问题时，语气要始终保持温和礼貌，充满同理心（一定要理解客户的焦急和痛点）。解答说明要逻辑清晰、步骤分明。如果遇到模糊问题，要主动引导客户提供更多细节。你的常用结束语是『请问还有其他可以帮到您的吗？』。" + _ROLE_SUFFIX,
 }
 
 VOICE_OPTIONS = [
@@ -318,29 +318,54 @@ def build_realtime_tab(page: ft.Page):
     conn_text = ft.Text("未连接", size=12)
     model_text = ft.Text("", size=12, opacity=0.6)
 
-    ai_status_icon = ft.Icon(ft.Icons.HEARING, color=ft.Colors.GREY, size=16)
-    ai_status_text = ft.Text("空闲", size=13, color=ft.Colors.GREY)
-    ai_status_row = ft.Row(
-        [ai_status_icon, ai_status_text], spacing=6,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    # ── 悬浮胶囊状态指示器（在对话区底部动态显示） ──
+    _pill_icon = ft.Icon(ft.Icons.MIC, color="#00E676", size=16)
+    _pill_progress = ft.ProgressRing(width=16, height=16, stroke_width=2.5, color="#FFB74D")
+    _pill_text = ft.Text("请说话...", size=13, weight=ft.FontWeight.W_500)
+    _pill_icon_slot = ft.Container(content=_pill_icon, width=20, height=20,
+                                    alignment=ft.Alignment(0, 0))
+    chat_status_pill = ft.Container(
+        content=ft.Row(
+            [_pill_icon_slot, _pill_text],
+            alignment=ft.MainAxisAlignment.CENTER, spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
+        border_radius=20,
+        padding=ft.Padding.symmetric(horizontal=16, vertical=8),
+        alignment=ft.Alignment(0, 0),
+        visible=False,
     )
 
     def _set_ai_status(status: str):
         if status == "listening":
-            ai_status_icon.name = ft.Icons.HEARING
-            ai_status_icon.color = "#00E676"
-            ai_status_text.value = "正在收听"
-            ai_status_text.color = "#00E676"
+            # 等待用户说话
+            _pill_icon_slot.content = ft.Icon(ft.Icons.MIC, color="#00E676", size=16)
+            _pill_text.value = "请说话..."
+            _pill_text.color = "#00E676"
+            chat_status_pill.visible = True
+        elif status == "user_speaking":
+            # 用户正在说话
+            _pill_icon_slot.content = ft.Icon(ft.Icons.GRAPHIC_EQ, color="#40C4FF", size=16)
+            _pill_text.value = "正在倾听..."
+            _pill_text.color = "#40C4FF"
+            chat_status_pill.visible = True
+        elif status == "thinking":
+            # AI 思考中
+            _pill_icon_slot.content = ft.ProgressRing(
+                width=16, height=16, stroke_width=2.5, color="#FFB74D")
+            _pill_text.value = "AI 正在思考..."
+            _pill_text.color = "#FFB74D"
+            chat_status_pill.visible = True
         elif status == "speaking":
-            ai_status_icon.name = ft.Icons.RECORD_VOICE_OVER
-            ai_status_icon.color = "#40C4FF"
-            ai_status_text.value = "AI 说话中"
-            ai_status_text.color = "#40C4FF"
+            # AI 正在回复
+            _pill_icon_slot.content = ft.Icon(ft.Icons.RECORD_VOICE_OVER, color="#CE93D8", size=16)
+            _pill_text.value = "AI 正在回复..."
+            _pill_text.color = "#CE93D8"
+            chat_status_pill.visible = True
         else:
-            ai_status_icon.name = ft.Icons.HEARING
-            ai_status_icon.color = ft.Colors.GREY
-            ai_status_text.value = "空闲"
-            ai_status_text.color = ft.Colors.GREY
+            # idle / 断开 → 隐藏胶囊
+            chat_status_pill.visible = False
 
     # ══════════════════════════════════════════════════════════════
     # 设置控件
@@ -356,7 +381,7 @@ def build_realtime_tab(page: ft.Page):
         dense=True, text_size=13,
     )
     role_dropdown = ft.Dropdown(
-        label="AI 角色", value="玩具儿童助手",
+        label="AI 角色", value="小爱同学（儿童版）",
         options=[ft.dropdown.Option(k, k) for k in ROLE_PRESETS], width=200,
         dense=True, text_size=13,
     )
@@ -422,7 +447,7 @@ def build_realtime_tab(page: ft.Page):
     chat_list = ft.ListView(expand=True, spacing=8, auto_scroll=True)
     chat_list.controls.append(
         ft.Container(
-            content=ft.Text("点击下方麦克风按钮开始对话", opacity=0.4, italic=True),
+            content=ft.Text("Voice Live 已准备就绪", opacity=0.4, italic=True),
             alignment=ft.Alignment(0, 0), padding=40,
         )
     )
@@ -441,9 +466,9 @@ def build_realtime_tab(page: ft.Page):
             c for c in chat_list.controls if getattr(c, "data", None) != CONNECTING_TAG
         ]
 
-    def _add_system_msg(text: str):
+    def _add_system_msg(text: str, color: str = "#81C784"):
         chat_list.controls.append(ft.Container(
-            content=ft.Text(text, size=13, color="#81C784", text_align=ft.TextAlign.CENTER),
+            content=ft.Text(text, size=13, color=color, text_align=ft.TextAlign.CENTER),
             alignment=ft.Alignment(0, 0), padding=8,
         ))
 
@@ -602,6 +627,14 @@ def build_realtime_tab(page: ft.Page):
                 if rms < _ECHO_GATE_RMS:
                     echo_gate["suppressed"] += 1
                     return  # 抑制回声
+            else:
+                # ── 本地音量检测驱动 UI 即时反馈 ──
+                # 非回声期间，检测到用户说话就瞬间切换 UI
+                samples = np.frombuffer(indata, dtype=np.int16)
+                rms = np.sqrt(np.mean(samples.astype(np.float32) ** 2))
+                if rms > 300 and _pill_text.value == "请说话...":
+                    _set_ai_status("user_speaking")
+                    _mark_dirty()
 
             audio_b64 = base64.b64encode(indata.tobytes()).decode("ascii")
             asyncio.run_coroutine_threadsafe(
@@ -708,13 +741,14 @@ def build_realtime_tab(page: ft.Page):
         elif etype == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
             log.info("用户开始说话 → 打断 AI")
             _skip_pending_audio()
-            _set_ai_status("listening")
+            _set_ai_status("user_speaking")
             _mark_dirty()
 
         elif etype == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STOPPED:
             log.info("用户停止说话")
             perf["speech_stopped_t"] = time.time()
             _create_pending_user_bubble()
+            _set_ai_status("thinking")
             _mark_dirty()
 
         elif etype == ServerEventType.RESPONSE_CREATED:
@@ -803,8 +837,27 @@ def build_realtime_tab(page: ft.Page):
             # 自适应调整预缓冲阈值
             _adjust_prebuffer()
             _update_buffer_display()
-            _set_ai_status("listening")
             _mark_dirty()
+
+            # 异步等待本地音频缓冲播放完毕，再切换为"请说话"
+            async def _wait_playback_done():
+                timeout = 100  # 最多等 10 秒
+                while audio_buf.buffered_ms > 0 and timeout > 0:
+                    await asyncio.sleep(0.1)
+                    timeout -= 1
+                # 防御性状态更新：会话已断开则不再更新，避免覆盖 idle 状态
+                if not is_active[0]:
+                    return
+                if _pill_text.value in ["AI 正在回复...", "AI 正在思考..."]:
+                    _set_ai_status("listening")
+                    _mark_dirty()
+
+            loop = vl_state.get("loop")
+            if loop:
+                asyncio.run_coroutine_threadsafe(_wait_playback_done(), loop)
+            else:
+                _set_ai_status("listening")
+                _mark_dirty()
 
         elif etype == ServerEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
             transcript = getattr(event, "transcript", "") or ""
@@ -828,7 +881,8 @@ def build_realtime_tab(page: ft.Page):
                     reason = "用户结束对话"
 
                 log.info("end_conversation 工具被调用: %s", reason)
-                _add_system_msg("AI 已结束对话")
+                _add_system_msg("AI 已结束对话", color="#FF7043")
+                _set_ai_status("idle")  # 立即隐藏胶囊，避免 _wait_playback 竞态复位
                 _mark_dirty()
 
                 # 发送工具结果并延迟断开（让 AI 的告别语音播完）
@@ -848,7 +902,7 @@ def build_realtime_tab(page: ft.Page):
 
                     # 等待 AI 告别语音播放完毕
                     await asyncio.sleep(3.0)
-                    _on_stop()
+                    _on_stop(show_msg=False)
 
                 loop = vl_state.get("loop")
                 if loop:
@@ -906,7 +960,7 @@ def build_realtime_tab(page: ft.Page):
                     voice_kwargs["rate"] = voice_rate
                 voice_config = AzureStandardVoice(**voice_kwargs)
 
-                role = role_dropdown.value or "玩具儿童助手"
+                role = role_dropdown.value or "小爱同学（儿童版）"
                 instructions = ROLE_PRESETS.get(role, "")
 
                 vad_type = vad_dropdown.value or "azure_semantic_vad"
@@ -1063,10 +1117,13 @@ def build_realtime_tab(page: ft.Page):
         vl_state["thread"] = t
         t.start()
 
-    def _on_stop():
+    def _on_stop(show_msg=True):
         vl_state["stop"].set()
         _stop_mic_capture()
         _stop_audio_playback()
+        # 添加结束对话提示（仅在连接活跃时，且非 AI 工具触发）
+        if is_active[0] and show_msg:
+            _add_system_msg("用户已结束对话", color="#90CAF9")
         # 立即更新连接状态
         conn_icon.color = ft.Colors.RED
         conn_text.value = "已断开"
@@ -1126,7 +1183,7 @@ def build_realtime_tab(page: ft.Page):
     def _clear_chat(e):
         chat_list.controls.clear()
         chat_list.controls.append(ft.Container(
-            content=ft.Text("点击下方麦克风按钮开始对话", opacity=0.4, italic=True),
+            content=ft.Text("Voice Live 已准备就绪", opacity=0.4, italic=True),
             alignment=ft.Alignment(0, 0), padding=40,
         ))
         # 重置性能指标
@@ -1158,8 +1215,6 @@ def build_realtime_tab(page: ft.Page):
         content=ft.Row(
             [
                 mic_btn_container,
-                ft.Container(width=12),
-                ai_status_row,
                 ft.Container(expand=True),
                 ft.Container(
                     content=ft.Row([conn_icon, conn_text, model_text], spacing=4),
@@ -1290,7 +1345,10 @@ def build_realtime_tab(page: ft.Page):
 
     # ── 对话主体区域 (占据大部分空间) ──
     chat_panel = ft.Container(
-        content=chat_list,
+        content=ft.Column([
+            chat_list,
+            ft.Row([chat_status_pill], alignment=ft.MainAxisAlignment.CENTER),
+        ], spacing=0, expand=True),
         expand=True,
         border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
         border_radius=12, padding=10,

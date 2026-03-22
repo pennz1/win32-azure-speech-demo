@@ -33,7 +33,6 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 ├── installer.nsi            # NSIS 安装包脚本（安装向导/快捷方式/卸载）
 ├── build_installer.ps1      # 一键构建脚本（exe + 安装包）
 ├── README.md                # 项目 README（新增）
-├── .github/workflows/       # GitHub Actions Windows 打包
 ├── Azure_AI_Demo_PRD_v2.0.md
 ├── ISSUES.md                # 问题追踪
 └── CONTEXT.md               # ← 本文件
@@ -65,6 +64,13 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - config_manager.py：Fernet 加密 API Key，config.json 持久化
 - app_paths.py：统一支持 dev 模式与 PyInstaller frozen 模式
 
+### API Key 安全机制
+- **存储加密**：`config_manager.py` 使用 **Fernet 对称加密**（AES-128-CBC + HMAC-SHA256），密钥存储在 `~/.azure_ai_demo/.encryption_key`。`SENSITIVE_FIELDS`（speech_api_key、openai_api_key、voicelive_api_key）加密后写入 config.json，非敏感字段明文存储
+- **密钥隔离**：加密密钥与配置文件分离存储（用户 home 目录 vs 应用目录），仅当前用户可读
+- **UI 混淆**：设置弹窗中已保存的 API Key 显示为 `••••••••••••••••`（16个圆点占位符），`can_reveal_password=False` 禁止显示/复制明文。用户仅能输入新 Key 替换，无法读取已保存的 Key
+- **保存逻辑**：`_resolve_key()` 函数判断用户输入 —— 若为占位符或空值则保持原 Key 不变，仅当用户输入新值时才替换
+- **安全评估**：Fernet 加密强度足够，密钥文件与配置文件同机存在是桌面应用的标准做法（类似 Chrome 密码存储），物理访问机器可还原——对售前演示 Demo 应用是可接受的安全水平
+
 ## Tab 1 录音转写 & AI 纪要 — 已完成
 - F1-01 音频文件上传（FilePicker async, .wav/.mp3/.m4a）
 - F1-02 实时麦克风录制（sounddevice → 16kHz mono .wav）
@@ -87,6 +93,7 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **清除转写结果**（v2.0.0322.9）：转写完成后底栏出现「清除」按钮（`DELETE_OUTLINE` 图标），点击清空转写原文+纪要+性能指标，重置所有按钮状态
 - **复制按钮拆分**（v2.0.0322.9）：原单一「复制」按钮拆为「复制原文」+「复制纪要」两个独立按钮，消除歧义。复制原文在转写完成后可用，复制纪要在纪要生成后可用
 - **文件选择互斥**（v2.0.0322.9）：选择文件后实时转录按钮置灰禁用（`bgcolor=OUTLINE` + `opacity=0.5`），文件旁显示 ✕ 清除按钮（`IconButton CLOSE`），清除后恢复实时转录可用
+- **首次转录预加载优化**（v2.0.0322.14）：后台线程在模块加载时预导入 `azure.cognitiveservices.speech` SDK，避免首次点击实时转录时的 import 冷启动延迟。注意：`Connection.from_recognizer()` 不支持 `ConversationTranscriber`（仅适用于 SpeechRecognizer/TranslationRecognizer），不可用于预连接
 
 ## UI 重构（2026-03-22，v2.0.0322.1）
 **设计目标**：① 一眼看懂流程"上传→转写→AI总结" ② AI 会议总结是视觉核心 ③ 页面简洁、有留白、层级清晰 ④ 适合暗色模式现代 UI ⑤ Demo 时 2 分钟讲清价值
@@ -230,8 +237,29 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **问题**：用户说"再见"后 AI 只口头告别但连接不断，需手动点停止
 - **方案**：定义 `FunctionTool("end_conversation")` 工具，AI 在用户表达结束意愿时主动调用
 - **角色指令**：`_ROLE_SUFFIX` 追加规则 — 用户说再见/拜拜/goodbye/bye 等时，先礼貌告别再调用 `end_conversation` 工具
-- **事件处理**：`RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE` 事件中检测 `name=="end_conversation"`，发送 `FunctionCallOutputItem` 确认，等待 3 秒让 AI 告别语音播完，再调用 `_on_stop()` 断开连接
+- **事件处理**：`RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE` 事件中检测 `name=="end_conversation"`，发送 `FunctionCallOutputItem` 确认，等待 3 秒让 AI 告别语音播完，再调用 `_on_stop(show_msg=False)` 断开连接
 - **参数**：工具接受 `reason`（string）参数记录断开原因
+- **系统消息**：AI 触发时显示橙红色 `#FF7043`"AI 已结束对话"；手动停止时显示蓝色 `#90CAF9`"用户已结束对话"
+- **`_on_stop(show_msg)` 参数**：`show_msg=True`（默认，手动停止）添加系统消息；`show_msg=False`（工具触发）跳过，避免重复
+
+### 悬浮胶囊状态指示器 (v2.0.0322.14)
+- **旧方案**：顶部 hero 栏 `ai_status_row`（空闲/正在收听/AI 说话中）静态文字
+- **新方案**：对话区底部居中悬浮胶囊 `chat_status_pill`，动态图标+颜色切换
+- **状态流转**：
+  | 事件 | 胶囊表现 |
+  |------|---------|
+  | SESSION_UPDATED / RESPONSE_DONE（音频播完） | 🎤 **请说话...** (绿色 `#00E676`) |
+  | SPEECH_STARTED / 本地 RMS>300 | 🎵 **正在倾听...** (蓝色 `#40C4FF`) |
+  | SPEECH_STOPPED | ⏳ **AI 正在思考...** (橙色 `#FFB74D` ProgressRing) |
+  | RESPONSE_CREATED | 🤖 **AI 正在回复...** (紫色 `#CE93D8`) |
+  | 断开连接 | 胶囊隐藏 |
+- **本地即时反馈**：`_mic_cb` 中非回声期检测 RMS>300 时瞬间切换为"正在倾听..."，无需等待服务端 `SPEECH_STARTED` 网络延迟
+- **异步播放完毕检测**：`RESPONSE_DONE` 时不立即切换为"请说话"，而是启动 `_wait_playback_done()` 异步任务轮询 `audio_buf.buffered_ms` 降至 0 后才切换。增加防御：
+  - 10 秒超时避免无限等待
+  - `is_active[0]` 检查避免会话已断开后仍复位
+  - `_pill_text.value` 检查避免覆盖用户已触发的 `user_speaking`/`thinking` 状态
+- **居中布局**：`chat_status_pill` 包裹在 `ft.Row(alignment=CENTER)` 中，不拉伸占满整行
+- **初始文案**：`chat_list` 占位文本从"点击下方麦克风按钮开始对话"改为"Voice Live 已准备就绪"
 
 ### 待完成
 - 运行测试（需要 Azure Voice Live 部署）
@@ -331,6 +359,14 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 
 ### 踩坑记录补充（2026-03-22）
 - **❗ Dropdown on_change 静默失败**：Flet 0.82 的 Dropdown 事件是 `on_select`，`on_change` 赋值不会报错但回调永远不触发。这导致男声音色选择无效、目标语言切换无效等多个功能失灵，且难以排查（无报错信息）。**全项目 Dropdown 必须统一使用 `on_select`**
+
+### TTS 回声抑制 (v2.0.0322.14)
+- **问题**：麦克风放在扬声器附近时，TTS 播放的译文被麦克风拾取，导致识别器误判为新语音输入→重复翻译→TTS 播放→无限循环
+- **方案**：TTS 播放期间暂停语音识别，播完后等待 300ms 冷却再恢复
+  - `_speak_tts` 开始时调用 `recognizer.stop_continuous_recognition()` 暂停麦克风采集
+  - TTS `future.get()` 完成后 `time.sleep(0.3)` 冷却，避免扬声器残余声波被拾取
+  - 检查 `state["running"]` 后再调用 `recognizer.start_continuous_recognition()` 恢复
+- **与 Tab2 方案对比**：Tab2 用客户端 RMS 能量门控（sounddevice 直接控制音频流）；Tab3 用 Azure SDK 管理麦克风（AudioConfig），无法做帧级门控，因此采用暂停/恢复识别器的方案
 
 ### 待完成
 - 运行测试（需要 Azure Speech 服务部署）
@@ -543,7 +579,7 @@ main.py 启动时自动检测以下 DLL：
 | Git 本地仓库 | ✅ 已创建 |
 | GitHub 远程仓库 | ✅ 已创建并已首推 |
 | build.spec | ✅ 已纳入 Git，已更新含 flet pack 命令 |
-| GitHub Actions (Windows) | ✅ 工作流配置存在（需更新为 flet pack） |
+| GitHub Actions (Windows) | ❌ 已移除（改为本地构建 + NSIS 打包） |
 | README | ✅ 已创建 |
 | Windows 冒烟测试 | ✅ 已通过（dev 模式 + .exe 打包） |
 | Python venv | ✅ .venv 已创建（Python 3.14, d:\Users\项目\win32-azure-speech-demo\.venv） |

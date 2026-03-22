@@ -14,6 +14,15 @@ from openai import AzureOpenAI
 
 from config_manager import load_config
 
+# 后台预加载 Azure Speech SDK，避免首次点击实时转录时的 import 冷启动延迟
+def _preload_speech_sdk():
+    try:
+        import azure.cognitiveservices.speech  # noqa: F401
+    except Exception:
+        pass
+
+threading.Thread(target=_preload_speech_sdk, daemon=True).start()
+
 # Speaker 颜色映射（最多 10 个说话人）
 SPEAKER_COLORS = [
     "#1565C0",  # Blue
