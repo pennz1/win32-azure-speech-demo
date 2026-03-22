@@ -12,12 +12,14 @@
 
 ## 📸 界面截图
 
-<!-- 截图占位，请手动替换为实际截图 -->
-| 功能模块 | 截图 |
-|--------|------|
-| 会议转写 & AI 总结 | `./screenshots/phase1_transcription.png` |
-| 实时语音对话 VoiceLive | `./screenshots/phase2_realtime.png` |
-| 同声传译 Live Interpreter | `./screenshots/phase3_interpreter.png` |
+### 📝 会议转写 & AI 纪要
+![会议转写 & AI 纪要](./screenshots/phase1_transcription.png)
+
+### 🤖 VoiceLive 实时语音对话
+![实时语音对话 VoiceLive](./screenshots/phase2_realtime.png)
+
+### 🌐 同声传译 Live Interpreter
+![同声传译 Live Interpreter](./screenshots/phase3_interpreter.png)
 
 ---
 
