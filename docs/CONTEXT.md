@@ -338,11 +338,18 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 ## 发布记录
 
 ### v2.0.0322.12 — GitHub Release（2026-03-22）
-- **推送到 GitHub**：`main` 分支
+- **推送到 GitHub**：`main` 分支，commit `2c53783`（DLL 修复）+ `5fd37d3`（版本号单一来源）
 - **Release**：[v2.0.0322.12](https://github.com/pennz1/win32-azure-speech-demo/releases/tag/v2.0.0322.12)
-- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.12.exe`（~106 MB）
-- **修复**：PyInstaller onefile 遗漏 Azure Speech SDK ctypes DLL 导致 Tab 1/3 启动报错
-- **spec 变更**：`AzureAISpeechDemo.spec` 使用 `Path(SPECPATH)` 动态 glob DLL，移除硬编码绝对路径
+- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.12.exe`（~106 MB，含完整 DLL）
+- **修复 1**：PyInstaller onefile 遗漏 Azure Speech SDK ctypes DLL 导致 Tab 1/3 启动报错
+- **修复 2**（本次）：安装向导版本号与实际版本不一致问题
+  - **根因**：版本号在 `main.py`、`installer.nsi`、`build_installer.ps1` 三处硬编码，每次升版需手动同步，容易遗漏
+  - **解决方案**：以 `main.py` 的 `VERSION` 为单一来源
+    - `build_installer.ps1` 用正则 `VERSION\s*=\s*"v?([\d\.]+)"` 从 `main.py` 读取版本，不再硬编码 `$Version`
+    - NSIS 调用改为 `makensis /DPRODUCT_VERSION=$Version installer.nsi` 外部传入
+    - `installer.nsi` 改为 `!ifndef PRODUCT_VERSION ... !define PRODUCT_VERSION "备用值" ... !endif`，支持外部覆盖
+  - **今后只需改 `main.py` 的 `VERSION`**，打包脚本自动同步到安装向导版本号
+- **修复 3**（本次）：移除安装向导欢迎页中 `Windows 10/11 x64` 系统要求文案
 
 ### v2.0.0322.11 — GitHub Release（2026-03-22）
 - **推送到 GitHub**：`main` 分支，commit `d10a55e`
