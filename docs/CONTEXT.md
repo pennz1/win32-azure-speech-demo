@@ -1,4 +1,4 @@
-﻿# CONTEXT — Azure AI 语音演示台
+# CONTEXT — Azure AI 语音演示台
 
 ## 项目概述
 Windows x86-64 桌面 Demo（.exe），面向售前工程师向客户演示 Azure AI 语音能力。
@@ -162,6 +162,83 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 ### 设置生效时机
 所有对话设置（模型、语音、温度、速率、VAD、降噪、回声消除、主动参与、AI 角色）均在 **建立连接时** 通过 `session.update()` 一次性应用，**不支持会话中动态更新**。修改设置后需重新开始对话才能生效。对话进行中修改设置会弹出 SnackBar 通知用户。
 
+### 终结点与区域分析 (v2.0.0322.15)
+- **连接架构**：Voice Live SDK 通过 WebSocket 连接到 Azure 端点。代码中 `_normalize_endpoint()` 将用户配置的完整 URL 规范化为 `scheme + netloc`，SDK 内部拼接路径 `/voice-live/realtime?api-version=2025-10-01&model=<model>`
+- **支持的域名格式**（微软官方文档确认）：
+  - `wss://<name>.services.ai.azure.com/voice-live/realtime` — 新版 Microsoft Foundry 资源
+  - `wss://<name>.cognitiveservices.azure.com/voice-live/realtime` — 旧版 Azure Speech 资源
+- **终结点切换记录**：
+  - **原始**：`alextest-eastus2.services.ai.azure.com`（East US 2，美国东部2）
+  - **新**：`pengchengvoice-sea-resource.cognitiveservices.azure.com`（Southeast Asia，新加坡）
+- **不用 VPN 卡顿根因**：East US 2 终结点距中国网络距离远，WebSocket 实时音频流 RTT 200-400ms，jitter 高达 224-346ms。VPN 优化路由路径后流畅
+- **SEA 区域验证结果**（日志确认）：
+  - `gpt-realtime` **不支持**：报错 "Model gpt-realtime is not supported in this region"
+  - `gpt-4.1` 可连接但音频特性完全不同：走 STT→LLM→TTS 管线，音频以突发方式到达（14 chunks, jitter=1595ms, underruns=10）
+  - 前两次 gpt-4.1 会话 OK（TTFT=1124-1160ms, underruns=0），第三次严重卡顿（TTFT=3389ms），可能是服务端负载不稳定
+- **根本区别**：`gpt-realtime`（原生音频模型）产生平滑连续的小 chunk 流（24-36 chunks/回复），`gpt-4.1`（管线模型 STT→LLM→TTS）产生突发大 chunk（14 chunks 间隔 2-5s），两者对缓冲策略需求截然不同
+
+### 模型分类 & 区域感知 (v2.0.0322.15 → v2.0.0322.16)
+- **原生音频模型**（`_NATIVE_AUDIO_MODELS`）：`gpt-realtime`、`gpt-realtime-mini` — 模型直接处理音频 I/O，chunk 连续流畅
+- **管线模型**：`gpt-4o`、`gpt-4o-mini`、`gpt-4.1`、`gpt-4.1-mini`、`phi4-mini` — Azure STT → LLM(文本) → Azure TTS，音频以突发到达
+- **MODEL_OPTIONS 扩展**：从 5 个扩展到 8 个模型，每个标注"原生音频"或"管线模式"
+- **静态区域-模型矩阵** (v2.0.0322.16)：`_REGION_MODEL_SUPPORT` — 覆盖 20+ Azure 区域, 来源 MS Learn 文档; 终结点变更时即时查表确定模型可用性
+- **区域自动检测** (v2.0.0322.16)：`_extract_region_from_endpoint(endpoint, cfg_region)` — 从 URL 主机名推断区域, 回退读取 config.json `region` 字段; 支持 Foundry (`.services.ai.azure.com`) 和经典 (`.cognitiveservices.azure.com`) 两种格式
+- **置灰禁选** (v2.0.0322.16)：不可用模型设置 `ft.dropdown.Option(disabled=True)` 原生置灰禁选, 替代原有 ⊘ 文本标记方案; 当前模型不可用时自动切换到首个可用模型
+- **预检拦截** (v2.0.0322.16)：`_on_start()` 中连接前检查模型是否在该区域受支持, 直接拦截并提示, 避免无效 WebSocket 连接
+- **不可用模型跟踪**：`_endpoint_unsupported_models` 运行时缓存（字典 `{endpoint: set(models)}`）, 作为静态矩阵的补充
+- **自动检测**：`ServerEventType.ERROR` 中检测 "not supported in this region" 消息，标记该模型不可用并刷新下拉列表
+- **区域变更缓存清理**：检测到区域变更时清除旧终结点的运行时缓存
+
+### 管线模型音频自适应缓冲 (v2.0.0322.15)
+- **问题**：管线模型（gpt-4.1 等）音频以突发方式从 TTS 到达，chunk 间隔 2-5 秒，远超原生模型的连续流。原有 400ms 二次预缓冲在 TTS burst 间隔中反复触发/释放/underrun，造成严重卡顿
+- **模型感知缓冲策略**：
+  - RESPONSE_CREATED 时检测模型类型（`model_text.value in _NATIVE_AUDIO_MODELS`）
+  - 原生模型：预缓冲 = `buf_ctl["prebuf_ms"]`（默认 1000ms），二次预缓冲 = 400ms
+  - 管线模型：预缓冲 = `max(buf_ctl["prebuf_ms"], 1500)`ms，二次预缓冲 = 1200ms
+- **自适应算法调整**：
+  - 管线模型最小预缓冲从 400ms 提高到 1200ms（`min_ms = 1200 if is_pipeline`）
+  - 最大预缓冲上限从 2000ms 提高到 3000ms（`_PREBUF_MS_MAX = 3000`）
+- **权衡**：管线模型的音频延迟高于原生模型是架构限制（TTS 需积累文本后再合成），增大缓冲只能改善播放连续性，无法降低首字节延迟
+
+### 管线模型抖动过滤修复 (v2.0.0322.17)
+- **问题**：v2.0.0322.15 的自适应缓冲算法将 TTS 句间停顿（5-6 秒）计入 jitter 计算，导致预缓冲从 1000ms 灾难性膨胀至 2677ms→3000ms（上限），每句话延迟 3 秒以上
+- **根因**：管线模型（gpt-4.1 等）的 TTS 音频以"突发—停顿—突发"方式到达。突发内 chunk 间隔仅 ~50ms（网络真实抖动），但突发间是 5-6 秒的 LLM 推理 + TTS 合成等待。旧算法将两者混在一起计算标准差
+- **修复**：
+  1. **管线模型 jitter 过滤**：`_adjust_prebuffer()` 中对管线模型过滤 >300ms 的到达间隔（`filtered = [a for a in arrivals if a <= 300]`），仅用突发内间隔计算 jitter
+  2. **reprebuf=0 for pipeline**：RESPONSE_CREATED 时管线模型设置 `effective_reprebuf = 0`（不做二次预缓冲），避免句间停顿后的额外等待
+  3. **移除 1200ms min_ms 地板**：管线模型不再强制 1200ms 最小预缓冲，统一使用 400ms（`_PREBUF_MS_MIN`）
+  4. **移除 1500ms 初始 prebuf 地板**：管线模型不再 `max(prebuf, 1500)`
+  5. **underrun_start_t 追踪**：记录 underrun 开始时间，用于更精确的恢复计算
+- **日志增强**：`_adjust_prebuffer()` 对管线模型额外记录 TTS 句间间隔次数和平均值
+- **效果验证**（post-fix 日志）：
+  - 短回复（21-24 chunks）：0 underruns，prebuf 从 1000ms 迅速收敛至 400ms ✅
+  - 长回复（46-55 秒会话）：0 次二次预缓冲，播放连续 ✅
+  - 突发内 jitter 仅 ~47ms，符合预期
+
+### SEA 区域矩阵修正 & 预检增强 (v2.0.0322.18)
+- **问题**：`_REGION_MODEL_SUPPORT["southeastasia"]` 静态矩阵包含 gpt-4o 和 gpt-4o-mini，但实际测试中这两个模型在 SEA 端点（`pengchengvoice-sea-resource.cognitiveservices.azure.com`）均返回 "not supported in this region" 错误（日志中 6+ 次失败记录）
+- **修复 1 — 矩阵修正**：SEA 条目移除 gpt-4o、gpt-4o-mini，保留 `{"gpt-4.1", "gpt-4.1-mini", "phi4-mm-realtime", "phi4-mini"}`
+- **修复 2 — 预检增强**：`_on_start()` 原本仅检查静态矩阵，现在同时检查运行时错误缓存 `_endpoint_unsupported_models`。流程：先查静态矩阵 → 再查运行时缓存 → 任一命中则拦截并提示，避免无效 WebSocket 连接
+
+### Azure AI 操场语音技术分析
+- **调查对象**：Azure AI Foundry Portal 的 Voice Live 操场（Playground）
+- **技术架构**：前端 JS/TS 方案（Azure-Samples/aoai-realtime-audio-sdk）
+  - **Player 类**（player.ts）：`AudioContext` + `AudioWorkletNode`，`play(buffer)` 仅将 Int16 音频 `postMessage` 到 worklet
+  - **playback-worklet.js**：**零预缓冲**设计 —
+    - `handleMessage(event)`: 将收到的 Int16 采样追加到 `this.buffer` 数组
+    - `process(inputs, outputs)`: 从 buffer 头部 splice 出 channel.length 个采样播放；若不足，播放已有数据 + 清空 buffer（静音补齐由 AudioWorklet 自动处理）
+    - **没有**预缓冲阈值、没有自适应抖动计算、没有二次预缓冲 — 纯 FIFO 直通
+  - **WebSocket 连接**：`LowLevelRTClient` 直连 `wss://` WebSocket，使用 gpt-realtime 原生音频模型
+- **为什么操场不卡顿**：
+  1. **使用 gpt-realtime 原生音频模型**：音频连续流式到达（每回复 24-36 chunks，间隔 30-80ms），无句间停顿
+  2. **Web Audio API AudioWorklet 线程优先级**：浏览器赋予 AudioWorklet 独立高优先级渲染线程，确保音频调度精确
+  3. **没有复杂缓冲逻辑**：零预缓冲消除了"等待缓冲填满"的延迟
+- **对我们的启发**：
+  - 桌面端使用 sounddevice（PortAudio）callback 模式，也有类似的实时线程保障
+  - 管线模型（gpt-4.1）的句间 5-6 秒停顿是 STT→LLM→TTS 架构的固有延迟，无法通过客户端缓冲消除
+  - v2.0.0322.17 已将管线模型 reprebuf 设为 0、prebuf 降至 400ms，接近操场的零预缓冲理念
+  - **剩余的"卡顿"主要是 TTFT 波动**（512ms-5826ms），完全取决于服务端 LLM 推理速度，客户端无法优化
+
 ### 自适应抖动缓冲 v1 (v2.0.0322.8) — 已被 v2 取代
 - 初版方案：基于 Queue[_PlaybackPacket] 包队列 + 包计数预缓冲
 - **问题**：日志显示 jitter=346ms, underruns=86。初始预缓冲 5 包（250ms）远不足以覆盖高达 346ms 的网络抖动。包队列方案在预缓冲释放后无法防止后续 underrun
@@ -260,11 +337,6 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - `_pill_text.value` 检查避免覆盖用户已触发的 `user_speaking`/`thinking` 状态
 - **居中布局**：`chat_status_pill` 包裹在 `ft.Row(alignment=CENTER)` 中，不拉伸占满整行
 - **初始文案**：`chat_list` 占位文本从"点击下方麦克风按钮开始对话"改为"Voice Live 已准备就绪"
-
-### 待完成
-- 运行测试（需要 Azure Voice Live 部署）
-- 连接失败后自动重连逻辑
-- 主动参与的静默期自动响应（沉默后 AI 主动发起话题）
 
 ### 踩坑记录
 - **❗ voice temperature 范围**：`AzureStandardVoice.temperature` 允许 0~1（API 校验 ≤1），不是 0~2。超出报错 "Input should be less than or equal to 1" 并断连
@@ -368,10 +440,6 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - 检查 `state["running"]` 后再调用 `recognizer.start_continuous_recognition()` 恢复
 - **与 Tab2 方案对比**：Tab2 用客户端 RMS 能量门控（sounddevice 直接控制音频流）；Tab3 用 Azure SDK 管理麦克风（AudioConfig），无法做帧级门控，因此采用暂停/恢复识别器的方案
 
-### 待完成
-- 运行测试（需要 Azure Speech 服务部署）
-- 延迟趋势 pyqtgraph 折线图（暂用文字柱状图替代）
-
 ### 音色选择功能（2026-03-22）
 - **男/女声切换**：实时切换 TTS 音色性别，每种目标语言提供 3 个男声 + 3 个女声
 - **具体音色可选**：下拉框选择具体 Azure Neural 语音（如晓晓/云希/Jenny/Guy 等）
@@ -384,35 +452,6 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - 法语：女（Denise/Coralie/Brigitte） 男（Henri/Claude/Alain）
 - **音色自动联动**：切换目标语言或性别时自动更新可选音色列表，invalidate synthesizer
 - **技术说明**：Azure Speech SDK 不支持自动检测说话人性别/音色匹配（没有内置的 speaker gender detection → TTS voice matching API），因此采用手动选择方案让用户自行指定男/女声
-
-## 发布记录
-
-### v2.0.0322.13（2026-03-22）
-- **回声消除优化**：客户端回声门控参数上调 — `_ECHO_GATE_RMS` 800→1500、`_ECHO_COOLDOWN_SEC` 0.6→1.2，降噪/回声消除开关默认开启，角色指令追加防回声规则
-- **转写语言推断**：`input_audio_transcription` 从 `whisper-1`（自动检测）改为 `gpt-4o-transcribe` + 根据语音名前缀固定 `language` 参数，解决首句中文被误判为其他语言的问题
-- **再见自动断开**：定义 `FunctionTool("end_conversation")`，用户说再见时 AI 主动调用工具断开连接。处理 `RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE` 事件，发送工具确认后等 3 秒再断开
-
-### v2.0.0322.12 — GitHub Release（2026-03-22）
-- **推送到 GitHub**：`main` 分支，commit `2c53783`（DLL 修复）+ `5fd37d3`（版本号单一来源）
-- **Release**：[v2.0.0322.12](https://github.com/pennz1/win32-azure-speech-demo/releases/tag/v2.0.0322.12)
-- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.12.exe`（~106 MB，含完整 DLL）
-- **修复 1**：PyInstaller onefile 遗漏 Azure Speech SDK ctypes DLL 导致 Tab 1/3 启动报错
-- **修复 2**（本次）：安装向导版本号与实际版本不一致问题
-  - **根因**：版本号在 `main.py`、`installer.nsi`、`build_installer.ps1` 三处硬编码，每次升版需手动同步，容易遗漏
-  - **解决方案**：以 `main.py` 的 `VERSION` 为单一来源
-    - `build_installer.ps1` 用正则 `VERSION\s*=\s*"v?([\d\.]+)"` 从 `main.py` 读取版本，不再硬编码 `$Version`
-    - NSIS 调用改为 `makensis /DPRODUCT_VERSION=$Version installer.nsi` 外部传入
-    - `installer.nsi` 改为 `!ifndef PRODUCT_VERSION ... !define PRODUCT_VERSION "备用值" ... !endif`，支持外部覆盖
-  - **今后只需改 `main.py` 的 `VERSION`**，打包脚本自动同步到安装向导版本号
-- **修复 3**（本次）：移除安装向导欢迎页中 `Windows 10/11 x64` 系统要求文案
-
-### v2.0.0322.11 — GitHub Release（2026-03-22）
-- **推送到 GitHub**：`main` 分支，commit `d10a55e`
-- **Release**：[v2.0.0322.11](https://github.com/pennz1/win32-azure-speech-demo/releases/tag/v2.0.0322.11)
-- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.11.exe`（~131 MB，DLL 未打包，已被 v2.0.0322.12 修复替代）
-- **README 重构**：全面更新，反映 Phase 2 Voice Live + Phase 3 等最新功能
-- **.gitignore 更新**：排除运行时日志，允许 `AzureAISpeechDemo.spec`
-- **不推送的文件**：`_build_exe.py`、`_check_braces.py`（临时脚本）/ 日志 / `dist/` / `build/` / `config.json`
 
 ## Flet 0.82 迁移摘要（2026-03-21 本次完成）
 ### 背景
@@ -607,24 +646,6 @@ cd "d:\Users\项目\win32-azure-speech-demo"
 - 打包使用 `flet pack` 而非手动 pyinstaller（自动处理 Flet 运行时资源）
 - Flet 0.82 无内置图表 → TTFT 趋势用文字柱状图替代
 
-## 变更日志
 
-| 日期 | 版本 | 本次完成内容 | 负责人 |
-|------|------|-------------|--------|
-| 2026-03-20 | v0.1 | 应用壳层 + 录音转写全功能实现 | 张鹏程 |
-| 2026-03-20 | v0.2 | 修复 Banner 4 态、pubsub 回调、转写缺 Key 提示、按钮 tooltip | 张鹏程 |
-| 2026-03-21 | v0.3 | 初始化 Git、本地首提、创建 GitHub 仓库并完成首推；补充 Windows 接续开发说明 | 张鹏程 |
-| 2026-03-21 | v0.4 | 将 build.spec 纳入版本控制，修复 Windows/CI 打包配置缺失风险 | 张鹏程 |
-| 2026-03-21 | v0.5 | **Flet 0.82 全量迁移**：修复 Tabs/FilePicker/Clipboard/SnackBar/Dialog/Button 等 12 处 API 变更；删除 Python 3.9 monkey-patch；Windows 冒烟测试通过；`flet pack` 打包 .exe 成功（136MB）；创建 README.md；更新 requirements.txt 和 build.spec | Copilot |
-| 2026-03-21 | v0.7 | realtime_tab 集成到 main.py Tab 2（修复 `_safe_update` 作用域问题）；interpreter_tab.py 全功能开发并集成到 Tab 3；config_manager 添加 `realtime_deployment` 默认值；三 Tab 冒烟测试通过 | Copilot |
-| 2026-03-21 | v0.8 | 修复 Flet 0.82 Service 注册问题：FilePicker/Clipboard 从 `page.overlay` 迁移到 `page.services`（解决 "Unknown control" 报错）；修复中文字体渲染（`page.fonts` 需指向字体文件路径 msyh.ttc，不能用字体名）；全面排查并消除所有 `page.overlay` 用法 | Copilot |
-| 2026-03-21 | v0.9 | **Voice Live 性能与体验大修**：① 音频卡顿根治（事件处理不再调用 page.update，用 _mark_dirty + 后台刷新线程）；② 气泡顺序修复（用户占位气泡机制）；③ 移除指标面板，对话区全宽；④ 按钮用 Container+Text 替代 ft.Button | Copilot |
-| 2026-03-22 | v2.0.0322.1 | **传译优化**：① 修复停止传译 TTS 音频未停止（stop_speaking_async）；② 多音色可选功能（6语言×2性别×3音色=36种）；③ 翻译延迟优化（分段静音超时300ms + Pre-connect TTS + 延迟指标优化）；④ 版本号 v2.0.0322.1 | Copilot |
-| 2026-03-22 | v2.0.0322.2 | **流式翻译+音色修复**：① 边说边译 Live Bubble 流式字幕（实时显示识别和翻译中间结果）；② 修复 Dropdown on_change→on_select 静默失败 BUG（男声音色/目标语言切换无效）；③ 设置变更 SnackBar 通知机制（对齐 Voice Live） | Copilot |
-| 2026-03-22 | v2.0.0322.4 | **主题切换+性能指标**：① 深色/浅色/跟随系统三种主题循环切换（图标式，点击立即生效，持久化到 config）；② Voice Live 性能表现区域（TTFT 首字节延迟大数字+平均、端到端延迟+平均、Token 消耗统计）；③ 基于 Voice Live SDK RESPONSE_DONE.response.usage 提取 token 统计 | Copilot |
-| 2026-03-22 | v2.0.0322.5 | **NSIS 安装包+DLL 保护**：① NSIS 安装向导（欢迎页→目录→安装→完成，含开始菜单/桌面快捷方式、卸载功能）；② DLL 依赖启动检查（MSVCP140/VCRUNTIME140/VCRUNTIME140_1，缺失弹 MessageBox 指引安装 VC++ Redist）；③ ICO 图标支持（PyInstaller + NSIS 双路径）；④ 一键构建脚本 build_installer.ps1（含安全检查）；⑤ 安装包含 VC++ 运行库检测提示 | Copilot |
-| 2026-03-22 | v2.0.0322.6 | **UI 统一+Banner 优化**：① Voice Live 布局重构（去掉标题，"开始对话"按钮挪至左上角 hero_bar，对齐其他 Tab 布局风格）；② Tab 标签"实时对话 GPT-4o"改为"实时对话 VoiceLive"；③ Voice Live 配置 Banner 改为仅异常时显示（已配置时 visible=False，对齐其他 Tab） | Copilot |
-| 2026-03-22 | v2.0.0322.7 | **全局 UI 样式统一**：① 主功能按钮统一规范（border_radius=25 圆角胶囊、padding=h32v12、text_size=15、icon_size=20、BOLD），三 Tab 全对齐；② Voice Live 开始对话按钮增加 MIC 图标（与其他 Tab 对齐）；③ 传译主按钮去除 shadow 和过大尺寸；④ Config Banner 三 Tab 统一（border_radius=8、icon 18px、text 13px、padding h14v8、spacing 10）；⑤ 传译导出按钮增加图标统一风格（icon+text、border_radius=8）；⑥ 设置弹窗保存按钮 border_radius 20→8 统一方角风格；⑦ Tab 1 外层 padding/spacing 对齐 Voice Live/3（24→Padding(l16,t12,r16,b8)、spacing 16→8） | Copilot |
-| 2026-03-22 | v2.0.0322.8 | **浅色主题优化+导出弹窗**：① 全面替换硬编码深色 hex 颜色为 Flet MD3 ColorScheme token，深浅主题自动适配；② Tab 1/3 导出改为 FilePicker.save_file() 系统"另存为"对话框；③ Voice Live 自适应抖动缓冲 v2（连续字节缓冲 + 淡入淡出 PLC + OUT_BLOCKSIZE 4800） | Copilot |
-| 2026-03-22 | v2.0.0322.9 | **Tab 1 增强**：① 移除实时转录 LIVE 文本指示器（仅保留 subtle 红色小圆点）；② 微软文档研究：启用 word-level timestamps（`request_word_level_timestamps()`）+ 语义分段（`Speech_SegmentationStrategy=Semantic`）；③ 性能指标底栏（识别延迟+avg、说话人数、词数、音频时长）pill 标签式 UI 匹配其他 Tab 设计；④ 修复 realtime_tab.py 缺失 `import queue`；⑤ 设置弹窗 UI 调整：Region 下拉移至 Speech Key 下方、Voice Live 标题去除"(Phase 2)"；⑥ 生成纪要按钮未转写时置灰；⑦ 清除转写结果按钮；⑧ 复制按钮拆分为「复制原文」+「复制纪要」；⑨ 文件选择后实时转录按钮互斥置灰+清除已选文件按钮 | Copilot |
-| 2026-03-22 | v2.0.0322.12 | **Voice Live 三项优化**： 回声门控参数调优（RMS 阈值 8001500，冷却时间 0.6s1.2s），更有效抑制扬声器回声打断 AI； 转写模型 whisper-1gpt-4o-transcribe + `language` 参数按语音自动推断（zh/en/ja/ko），解决首句文本语言误检问题； FunctionTool `end_conversation` 自动断开用户说再见/拜拜/goodbye时 AI 先礼貌告别，再通过工具调用触发客户端主动断开（含 3s 延迟等待告别语音播完）；所有角色预设追加 anti-echo + goodbye 指令后缀 | Copilot |
+
+

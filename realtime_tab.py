@@ -39,13 +39,86 @@ def _normalize_endpoint(endpoint: str) -> str:
 
 
 # ── 模型/语音/角色 选项 ──────────────────────────────────────────
+# 原生音频模型: 模型直接处理音频输入输出，流式平滑
+# 管线模型: Azure STT → LLM(文本) → Azure TTS，音频以突发方式到达
 MODEL_OPTIONS = [
-    ("gpt-realtime", "gpt-realtime（推荐）"),
-    ("gpt-realtime-mini", "gpt-realtime-mini（低成本）"),
-    ("gpt-4o", "gpt-4o"),
-    ("gpt-4.1", "gpt-4.1"),
+    ("gpt-realtime", "gpt-realtime（原生音频·推荐）"),
+    ("gpt-realtime-mini", "gpt-realtime-mini（原生·低成本）"),
+    ("gpt-4o", "gpt-4o（管线模式）"),
+    ("gpt-4o-mini", "gpt-4o-mini（管线·低成本）"),
+    ("gpt-4.1", "gpt-4.1（管线模式）"),
+    ("gpt-4.1-mini", "gpt-4.1-mini（管线·低成本）"),
     ("phi4-mm-realtime", "phi4-mm-realtime（轻量）"),
+    ("phi4-mini", "phi4-mini（管线·轻量）"),
 ]
+
+# 原生音频模型集合 — 流式平滑, 小 chunk 连续到达
+# 管线模型不在此集合中, 音频以大 burst 方式到达, 需要更大缓冲
+_NATIVE_AUDIO_MODELS = {"gpt-realtime", "gpt-realtime-mini"}
+
+# 缓存: 每个终结点已知不支持的模型(运行时由错误回调填充)
+_endpoint_unsupported_models: dict[str, set[str]] = {}
+
+# ── 区域-模型静态支持矩阵 ───────────────────────────────────────
+# 来源: https://learn.microsoft.com/azure/ai-services/speech-service/regions?tabs=voice-live
+# 值为该区域 Voice Live 支持的模型集合; 不在表中的区域视为"未知"(全部允许)
+_ALL_MODEL_KEYS = {k for k, _ in MODEL_OPTIONS}
+_REGION_MODEL_SUPPORT: dict[str, set[str]] = {
+    "eastus": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "eastus2": _ALL_MODEL_KEYS,  # 全部支持
+    "westus": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "westus2": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "westus3": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "southcentralus": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "northcentralus": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "canadacentral": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "canadaeast": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "swedencentral": _ALL_MODEL_KEYS,  # 全部支持
+    "westeurope": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "francecentral": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "germanywestcentral": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "italynorth": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "norwayeast": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "switzerlandnorth": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "uksouth": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "southeastasia": {"gpt-4.1", "gpt-4.1-mini",
+                      "phi4-mm-realtime", "phi4-mini"},
+    "australiaeast": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "centralindia": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "japaneast": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini",
+                  "phi4-mm-realtime", "phi4-mini"},
+    "koreacentral": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "brazilsouth": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "southafricanorth": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+    "uaenorth": {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"},
+}
+# 记住上一次检测到的区域，用于检测终结点区域变更
+_last_detected_region: list[str] = [""]
+
+
+def _extract_region_from_endpoint(endpoint: str, cfg_region: str = "") -> str:
+    """从终结点 URL 或配置区域提取 Azure 区域标识。
+
+    优先从 URL 主机名推断区域; 若无法推断则使用 config 中的 region 字段。
+    支持两种域名格式:
+      *.services.ai.azure.com  — Azure AI Foundry 资源
+      *.cognitiveservices.azure.com  — 经典 Speech 资源
+    """
+    import re
+    host = urlparse(endpoint).hostname or ""
+    host = host.lower()
+    # 尝试匹配已知区域短名 (从 _REGION_MODEL_SUPPORT 键)
+    for region in sorted(_REGION_MODEL_SUPPORT.keys(), key=len, reverse=True):
+        if region in host:
+            return region
+    # Foundry 格式回退: "<name>-<region>.services.ai.azure.com"
+    m = re.search(r'-([a-z]+\d*)\.services\.ai\.azure\.com', host)
+    if m and m.group(1) in _REGION_MODEL_SUPPORT:
+        return m.group(1)
+    # 使用配置中的 region 字段
+    if cfg_region and cfg_region.lower() in _REGION_MODEL_SUPPORT:
+        return cfg_region.lower()
+    return cfg_region.lower() if cfg_region else ""
 
 # ── 角色指令的通用后缀 ──
 _ROLE_SUFFIX = (
@@ -121,6 +194,7 @@ class _AudioBuffer:
         self._last_good = np.zeros(self._FADE_SAMPLES, dtype=np.int16)
         self._in_underrun = False
         self._underrun_count = 0
+        self._underrun_start_t: float = 0.0  # wallclock when last underrun started
 
     def start_response(self, prebuf_bytes: int, reprebuf_bytes: int = 0):
         with self._lock:
@@ -140,6 +214,11 @@ class _AudioBuffer:
                 self._prebuffering = False
                 return True
             return False
+
+    @property
+    def underrun_start_t(self) -> float:
+        """Wallclock time when the last underrun started (0 if none)."""
+        return self._underrun_start_t
 
     def release_prebuffer(self):
         with self._lock:
@@ -185,6 +264,8 @@ class _AudioBuffer:
 
             # ── UNDERRUN ──
             self._underrun_count += 1
+            if not self._in_underrun:
+                self._underrun_start_t = time.time()
             self._in_underrun = True
 
             # 重新预缓冲: 保留已有数据，等待积累足够才恢复播放
@@ -245,9 +326,10 @@ def build_realtime_tab(page: ft.Page):
     # ── 自适应抖动缓冲 (Adaptive Jitter Buffer) ──────────────
     # 解决网络抖动（如 VPN 切换后）导致的 AI 语音逐字卡顿
     _PREBUF_MS_MIN = 400          # 最小预缓冲 (ms)
-    _PREBUF_MS_MAX = 2000         # 最大预缓冲 (ms)
+    _PREBUF_MS_MAX = 3000         # 最大预缓冲 (ms) ↑ v15 管线模型需更大上限
     _PREBUF_MS_DEFAULT = 1000     # 默认预缓冲 (ms)  ↑ v3 提高默认值
-    _REPREBUF_MS = 400            # 二次预缓冲 (ms)  ← v3 新增
+    _REPREBUF_MS = 400            # 二次预缓冲 — 原生模型 (ms)
+    _REPREBUF_MS_PIPELINE = 1200  # 二次预缓冲 — 管线模型 (ms) ← v15 新增
     _JITTER_WINDOW = 20           # 抖动计算滑动窗口
     _UNDERRUN_WINDOW_SEC = 15     # underrun 统计窗口 (秒)
     _ECHO_GATE_RMS = 1500         # 回声门控 RMS 阈值 (int16 量级) v12: 800→1500
@@ -372,9 +454,64 @@ def build_realtime_tab(page: ft.Page):
     # ══════════════════════════════════════════════════════════════
     model_dropdown = ft.Dropdown(
         label="模型", value="gpt-realtime",
-        options=[ft.dropdown.Option(k, v) for k, v in MODEL_OPTIONS], width=220,
+        options=[ft.dropdown.Option(k, v) for k, v in MODEL_OPTIONS], width=260,
         dense=True, text_size=13,
     )
+
+    def _update_model_options():
+        """根据当前终结点刷新模型下拉列表，置灰并禁用不可用模型。
+
+        数据源优先级:
+          1. 静态区域-模型矩阵 (_REGION_MODEL_SUPPORT) — 即时
+          2. 运行时错误缓存 (_endpoint_unsupported_models) — 补充
+        """
+        cfg = load_config()
+        ep = _normalize_endpoint(cfg.get("voicelive_endpoint", ""))
+        region = _extract_region_from_endpoint(
+            cfg.get("voicelive_endpoint", ""), cfg.get("region", ""))
+
+        # 合并不可用模型: 静态矩阵 + 运行时错误缓存
+        unsupported: set[str] = set()
+        if region and region in _REGION_MODEL_SUPPORT:
+            supported_in_region = _REGION_MODEL_SUPPORT[region]
+            unsupported = _ALL_MODEL_KEYS - supported_in_region
+        runtime_unsupported = _endpoint_unsupported_models.get(ep, set())
+        unsupported = unsupported | runtime_unsupported
+
+        # 区域变更时清除旧的运行时缓存
+        if region and region != _last_detected_region[0]:
+            old_region = _last_detected_region[0]
+            _last_detected_region[0] = region
+            if old_region:
+                # 清除旧终结点的运行时错误缓存
+                for cached_ep in list(_endpoint_unsupported_models.keys()):
+                    if cached_ep != ep:
+                        _endpoint_unsupported_models.pop(cached_ep, None)
+                log.info("区域变更: %s → %s, 已清除旧缓存", old_region, region)
+            log.info("检测区域: %s, 支持模型: %s, 不可用: %s",
+                     region,
+                     sorted(_REGION_MODEL_SUPPORT.get(region, _ALL_MODEL_KEYS)),
+                     sorted(unsupported) if unsupported else "无")
+
+        new_opts = []
+        for k, v in MODEL_OPTIONS:
+            if k in unsupported:
+                new_opts.append(ft.dropdown.Option(
+                    key=k,
+                    text=f"⊘ {v}（不可用）",
+                    disabled=True,
+                ))
+            else:
+                new_opts.append(ft.dropdown.Option(k, v))
+        model_dropdown.options = new_opts
+        # 如果当前选中的模型不可用，自动切换到第一个可用模型
+        if model_dropdown.value in unsupported:
+            for k, _ in MODEL_OPTIONS:
+                if k not in unsupported:
+                    model_dropdown.value = k
+                    break
+        _mark_dirty()
+
     voice_dropdown = ft.Dropdown(
         label="语音", value="zh-CN-XiaoxiaoNeural",
         options=[ft.dropdown.Option(k, v) for k, v in VOICE_OPTIONS], width=240,
@@ -566,9 +703,16 @@ def build_realtime_tab(page: ft.Page):
         released = audio_buf.write(pcm_bytes)
         if released:
             buf_ms = audio_buf.buffered_ms + buf_ctl["prebuf_ms"]
-            log.info("预缓冲完成: %d chunks / %d bytes / ≈%.0fms (阈值=%dms)",
-                     buf_ctl["chunks_in"], buf_ctl["delta_bytes_total"],
-                     buf_ms, buf_ctl["prebuf_ms"])
+            underrun_t = audio_buf.underrun_start_t
+            if underrun_t > 0 and audio_buf.underrun_count > 0:
+                gap_ms = (time.time() - underrun_t) * 1000
+                log.info("预缓冲完成: %d chunks / %d bytes / ≈%.0fms (阈值=%dms, 句间间隔≈%.0fms)",
+                         buf_ctl["chunks_in"], buf_ctl["delta_bytes_total"],
+                         buf_ms, buf_ctl["prebuf_ms"], gap_ms)
+            else:
+                log.info("预缓冲完成: %d chunks / %d bytes / ≈%.0fms (阈值=%dms)",
+                         buf_ctl["chunks_in"], buf_ctl["delta_bytes_total"],
+                         buf_ms, buf_ctl["prebuf_ms"])
 
     def _skip_pending_audio():
         audio_buf.clear()
@@ -664,18 +808,41 @@ def build_realtime_tab(page: ft.Page):
 
     # ── 自适应缓冲调整 ─────────────────────────────────────────
     def _adjust_prebuffer():
-        """根据网络抖动和 underrun 频率自适应调整预缓冲时长。"""
+        """根据网络抖动和 underrun 频率自适应调整预缓冲时长。
+
+        管线模型修正 (v2.0.0322.17):
+        - 过滤掉 >300ms 的包间隔（TTS 句间空档 5-6s），防止误判为网络抖动
+        - pipeline 模型最低预缓冲与原生模型对齐 (400ms)，不再强制 1200ms
+        """
         now = time.time()
         if now - buf_ctl["last_adjust_t"] < 3:
             return
         buf_ctl["last_adjust_t"] = now
 
+        # 判断当前模型类型
+        active_model = model_text.value or model_dropdown.value or ""
+        is_pipeline = active_model not in _NATIVE_AUDIO_MODELS
+
         # 计算包间到达时间的标准差 (jitter)
         arrivals = buf_ctl["arrivals"]
         if len(arrivals) >= 5:
-            mean_arr = sum(arrivals) / len(arrivals)
-            variance = sum((a - mean_arr) ** 2 for a in arrivals) / len(arrivals)
-            jitter = variance ** 0.5
+            if is_pipeline:
+                # 管线模型: 过滤掉 > 300ms 的间隔（这些是 TTS 句间空档，不是网络抖动）
+                filtered = [a for a in arrivals if a <= 300]
+                if len(filtered) >= 3:
+                    mean_arr = sum(filtered) / len(filtered)
+                    variance = sum((a - mean_arr) ** 2 for a in filtered) / len(filtered)
+                    jitter = variance ** 0.5
+                else:
+                    jitter = 0.0  # 没有足够的 intra-burst 样本，视为抖动=0
+                inter_burst_gaps = [a for a in arrivals if a > 300]
+                if inter_burst_gaps:
+                    log.info("管线模型 TTS 句间间隔: %d 次, avg=%.0fms (已从抖动计算中排除)",
+                             len(inter_burst_gaps), sum(inter_burst_gaps) / len(inter_burst_gaps))
+            else:
+                mean_arr = sum(arrivals) / len(arrivals)
+                variance = sum((a - mean_arr) ** 2 for a in arrivals) / len(arrivals)
+                jitter = variance ** 0.5
             buf_ctl["jitter_ms"] = jitter
         else:
             jitter = buf_ctl["jitter_ms"]
@@ -687,9 +854,12 @@ def build_realtime_tab(page: ft.Page):
 
         old_ms = buf_ctl["prebuf_ms"]
 
+        # 管线/原生模型统一使用相同下限 — pipeline 的句间停顿是 TTS 架构特性，
+        # 不能通过增大缓冲来消除，强制 1200ms 只会让每句话推迟播放
+        min_ms = _PREBUF_MS_MIN  # 400ms for both pipeline and native
+
         # 自适应策略: 基于 3×jitter + underrun 惩罚
-        # 目标: prebuf_ms ≥ 3 × jitter (覆盖 ~99% 的延迟波动)
-        target = max(_PREBUF_MS_MIN, jitter * 3.0)
+        target = max(min_ms, jitter * 3.0)
         if recent_underruns > 3:
             target = max(target, old_ms + 300)  # 频繁 underrun → 大幅增加
         elif recent_underruns > 0:
@@ -755,9 +925,21 @@ def build_realtime_tab(page: ft.Page):
             log.info("AI 开始回复")
             perf["response_created_t"] = time.time()
             perf["first_audio_t"] = 0
-            # 启动预缓冲: 积累足够音频数据后再开始播放
-            prebuf_bytes = _ms_to_bytes(buf_ctl["prebuf_ms"])
-            reprebuf_bytes = _ms_to_bytes(_REPREBUF_MS)
+            # 启动预缓冲: 根据模型类型选择缓冲策略
+            active_model = model_text.value or model_dropdown.value or ""
+            if active_model in _NATIVE_AUDIO_MODELS:
+                # 原生音频模型: 小 chunk 连续流, 标准缓冲 + 二次预缓冲
+                effective_prebuf = buf_ctl["prebuf_ms"]
+                effective_reprebuf = _REPREBUF_MS
+            else:
+                # 管线模型 (STT→LLM→TTS): 逐句 TTS burst，句间 5-6s 空档
+                # 修复 v17: 不再强制 1500ms 初始预缓冲（burst 会快速充满）
+                # 修复 v17: 二次预缓冲设为 0 → 新 burst 到达后立即播放，
+                #           而不是额外等 1200ms，避免在已有 5-6s 停顿上再叠加延迟
+                effective_prebuf = buf_ctl["prebuf_ms"]
+                effective_reprebuf = 0  # pipeline: no re-prebuffer, play immediately
+            prebuf_bytes = _ms_to_bytes(effective_prebuf)
+            reprebuf_bytes = _ms_to_bytes(effective_reprebuf)
             audio_buf.start_response(prebuf_bytes, reprebuf_bytes)
             buf_ctl["chunks_in"] = 0
             buf_ctl["delta_bytes_total"] = 0
@@ -915,7 +1097,22 @@ def build_realtime_tab(page: ft.Page):
             msg = getattr(err, "message", str(err)) if err else "未知错误"
             if "Cancellation failed" not in msg:
                 log.error("Voice Live 错误: %s", msg)
-                _add_error_msg(f"{msg}")
+                # 检测模型不支持错误并给出明确提示
+                if "not supported in this region" in msg.lower():
+                    failed_model = model_text.value or model_dropdown.value or ""
+                    # 记录该终结点不支持的模型
+                    ep = _normalize_endpoint(
+                        load_config().get("voicelive_endpoint", ""))
+                    if ep not in _endpoint_unsupported_models:
+                        _endpoint_unsupported_models[ep] = set()
+                    _endpoint_unsupported_models[ep].add(failed_model)
+                    _update_model_options()
+                    hint = "原生音频" if failed_model in _NATIVE_AUDIO_MODELS else "管线"
+                    _add_error_msg(
+                        f"模型 {failed_model} 在当前区域不可用。"
+                        f"请切换为其他{'管线' if hint == '原生音频' else ''}模型重试。")
+                else:
+                    _add_error_msg(f"{msg}")
                 # 出错时中断连接
                 vl_state["stop"].set()
                 _mark_dirty()
@@ -1099,8 +1296,27 @@ def build_realtime_tab(page: ft.Page):
             _flush_ui()
             return
 
+        # 预检: 拦截已知不可用模型 (静态矩阵 + 运行时缓存)
+        region = _extract_region_from_endpoint(endpoint_raw, cfg.get("region", ""))
+        ep_normalized = _normalize_endpoint(endpoint_raw)
+        blocked = False
+        if region and region in _REGION_MODEL_SUPPORT:
+            if model not in _REGION_MODEL_SUPPORT[region]:
+                blocked = True
+        if not blocked and ep_normalized in _endpoint_unsupported_models:
+            if model in _endpoint_unsupported_models[ep_normalized]:
+                blocked = True
+        if blocked:
+            conn_icon.color = ft.Colors.RED
+            conn_text.value = f"模型 {model} 在 {region or '当前'} 区域不可用"
+            _add_error_msg(
+                f"模型 {model} 在当前区域不受支持，请先切换模型。")
+            _flush_ui()
+            return
+
         endpoint = _normalize_endpoint(endpoint_raw)
-        log.info("启动: endpoint=%s, model=%s", endpoint, model)
+        log.info("启动: endpoint=%s, model=%s, type=%s", endpoint, model,
+                 "native" if model in _NATIVE_AUDIO_MODELS else "pipeline")
 
         is_active[0] = True
         mic_btn_text.value = "停止"
@@ -1173,6 +1389,8 @@ def build_realtime_tab(page: ft.Page):
             config_banner_text.value = "请先在设置中配置 Voice Live Endpoint 和 API Key"
             config_banner_btn.visible = True
             config_banner.bgcolor = ft.Colors.ERROR_CONTAINER
+        # 终结点变更时刷新模型可用性标记
+        _update_model_options()
         _flush_ui()
 
     _refresh_config_banner()
