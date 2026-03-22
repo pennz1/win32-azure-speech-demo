@@ -1,4 +1,4 @@
-# CONTEXT — Azure AI 语音演示台
+﻿# CONTEXT — Azure AI 语音演示台
 
 ## 项目概述
 Windows x86-64 桌面 Demo（.exe），面向售前工程师向客户演示 Azure AI 语音能力。
@@ -208,8 +208,9 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
   - RMS < 800 (回声级别) → 不发送到服务端，抑制回声
   - RMS ≥ 800 (真实说话级别) → 正常发送，允许 barge-in 打断
   - AI 停止播放后 0.6s 冷却期，避免残余回声触发 VAD
-- **参数**：`_ECHO_GATE_RMS = 800`（int16 量级），`_ECHO_COOLDOWN_SEC = 0.6`
+- **参数**：`_ECHO_GATE_RMS = 1500`（int16 量级，v13 从 800 上调），`_ECHO_COOLDOWN_SEC = 1.2`（v13 从 0.6 上调）
 - **与服务端回声消除的关系**：服务端 `server_echo_cancellation` 对大延迟（1000ms+ 预缓冲）场景效果不佳，客户端门控作为补充层
+- **角色指令防回声**（v2.0.0322.13）：`_ROLE_SUFFIX` 追加"永远不要重复用户刚说过的话或回声"，从 AI 行为层面二次防御
 
 ### 导出功能改进 (v2.0.0322.9)
 - **会议纪要导出**：`export_txt()` 改为 `async def`，使用 `FilePicker.save_file()` 弹出系统“另存为”对话框，用户自选保存位置和文件名
@@ -218,6 +219,19 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **新方案**：弹出系统文件保存对话框，默认文件名带时间戳（`meeting_notes_20260322_xxxx.txt` / `translation_20260322_xxxx.txt`），用户可自选任意位置
 - **取消处理**：用户取消保存对话框时 SnackBar 提示"已取消导出"
 - **移除 `get_data_dir` 依赖**：两个 tab 的 `from app_paths import get_data_dir` 已移除
+
+### 转写语言推断 (v2.0.0322.13)
+- **问题**：`whisper-1` 自动语言检测在首句（尤其中文短句）容易误判为英/日/韩，导致第一句转写乱码
+- **方案**：双保险 — 换用 `gpt-4o-transcribe` 模型 + 根据所选语音名前缀固定 `language` 参数
+- **语言推断**：`_lang_map` 映射 voice_name 前缀（zh→zh, en→en, ja→ja, ko→ko 等），默认 zh
+- **配置**：`input_audio_transcription={"model": "gpt-4o-transcribe", "language": transcribe_lang}`
+
+### FunctionTool 再见自动断开 (v2.0.0322.13)
+- **问题**：用户说"再见"后 AI 只口头告别但连接不断，需手动点停止
+- **方案**：定义 `FunctionTool("end_conversation")` 工具，AI 在用户表达结束意愿时主动调用
+- **角色指令**：`_ROLE_SUFFIX` 追加规则 — 用户说再见/拜拜/goodbye/bye 等时，先礼貌告别再调用 `end_conversation` 工具
+- **事件处理**：`RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE` 事件中检测 `name=="end_conversation"`，发送 `FunctionCallOutputItem` 确认，等待 3 秒让 AI 告别语音播完，再调用 `_on_stop()` 断开连接
+- **参数**：工具接受 `reason`（string）参数记录断开原因
 
 ### 待完成
 - 运行测试（需要 Azure Voice Live 部署）
@@ -336,6 +350,11 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **技术说明**：Azure Speech SDK 不支持自动检测说话人性别/音色匹配（没有内置的 speaker gender detection → TTS voice matching API），因此采用手动选择方案让用户自行指定男/女声
 
 ## 发布记录
+
+### v2.0.0322.13（2026-03-22）
+- **回声消除优化**：客户端回声门控参数上调 — `_ECHO_GATE_RMS` 800→1500、`_ECHO_COOLDOWN_SEC` 0.6→1.2，降噪/回声消除开关默认开启，角色指令追加防回声规则
+- **转写语言推断**：`input_audio_transcription` 从 `whisper-1`（自动检测）改为 `gpt-4o-transcribe` + 根据语音名前缀固定 `language` 参数，解决首句中文被误判为其他语言的问题
+- **再见自动断开**：定义 `FunctionTool("end_conversation")`，用户说再见时 AI 主动调用工具断开连接。处理 `RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE` 事件，发送工具确认后等 3 秒再断开
 
 ### v2.0.0322.12 — GitHub Release（2026-03-22）
 - **推送到 GitHub**：`main` 分支，commit `2c53783`（DLL 修复）+ `5fd37d3`（版本号单一来源）
@@ -572,3 +591,4 @@ cd "d:\Users\项目\win32-azure-speech-demo"
 | 2026-03-22 | v2.0.0322.7 | **全局 UI 样式统一**：① 主功能按钮统一规范（border_radius=25 圆角胶囊、padding=h32v12、text_size=15、icon_size=20、BOLD），三 Tab 全对齐；② Voice Live 开始对话按钮增加 MIC 图标（与其他 Tab 对齐）；③ 传译主按钮去除 shadow 和过大尺寸；④ Config Banner 三 Tab 统一（border_radius=8、icon 18px、text 13px、padding h14v8、spacing 10）；⑤ 传译导出按钮增加图标统一风格（icon+text、border_radius=8）；⑥ 设置弹窗保存按钮 border_radius 20→8 统一方角风格；⑦ Tab 1 外层 padding/spacing 对齐 Voice Live/3（24→Padding(l16,t12,r16,b8)、spacing 16→8） | Copilot |
 | 2026-03-22 | v2.0.0322.8 | **浅色主题优化+导出弹窗**：① 全面替换硬编码深色 hex 颜色为 Flet MD3 ColorScheme token，深浅主题自动适配；② Tab 1/3 导出改为 FilePicker.save_file() 系统"另存为"对话框；③ Voice Live 自适应抖动缓冲 v2（连续字节缓冲 + 淡入淡出 PLC + OUT_BLOCKSIZE 4800） | Copilot |
 | 2026-03-22 | v2.0.0322.9 | **Tab 1 增强**：① 移除实时转录 LIVE 文本指示器（仅保留 subtle 红色小圆点）；② 微软文档研究：启用 word-level timestamps（`request_word_level_timestamps()`）+ 语义分段（`Speech_SegmentationStrategy=Semantic`）；③ 性能指标底栏（识别延迟+avg、说话人数、词数、音频时长）pill 标签式 UI 匹配其他 Tab 设计；④ 修复 realtime_tab.py 缺失 `import queue`；⑤ 设置弹窗 UI 调整：Region 下拉移至 Speech Key 下方、Voice Live 标题去除"(Phase 2)"；⑥ 生成纪要按钮未转写时置灰；⑦ 清除转写结果按钮；⑧ 复制按钮拆分为「复制原文」+「复制纪要」；⑨ 文件选择后实时转录按钮互斥置灰+清除已选文件按钮 | Copilot |
+| 2026-03-22 | v2.0.0322.12 | **Voice Live 三项优化**： 回声门控参数调优（RMS 阈值 8001500，冷却时间 0.6s1.2s），更有效抑制扬声器回声打断 AI； 转写模型 whisper-1gpt-4o-transcribe + `language` 参数按语音自动推断（zh/en/ja/ko），解决首句文本语言误检问题； FunctionTool `end_conversation` 自动断开用户说再见/拜拜/goodbye时 AI 先礼貌告别，再通过工具调用触发客户端主动断开（含 3s 延迟等待告别语音播完）；所有角色预设追加 anti-echo + goodbye 指令后缀 | Copilot |

@@ -6,10 +6,13 @@ SDK: azure-ai-voicelive 1.1.0 (GA)
   - UI 更新通过 page.run_task() 调度到 Flet 事件循环 (线程安全)
   - 事件处理只修改控件属性并调用 _mark_dirty(), 自动 debounce
   - 用户转写气泡在 SPEECH_STOPPED 时创建占位, 避免出现在 AI 气泡下方
+  - FunctionTool end_conversation: 用户说再见时 AI 主动断开连接
+  - 转写使用 gpt-4o-transcribe + 语言固定, 避免首句误检
 """
 
 import asyncio
 import base64
+import json
 import logging
 import threading
 import time
@@ -44,10 +47,18 @@ MODEL_OPTIONS = [
     ("phi4-mm-realtime", "phi4-mm-realtime（轻量）"),
 ]
 
+# ── 角色指令的通用后缀 ──
+_ROLE_SUFFIX = (
+    "\n\n重要规则："
+    "\n1. 永远不要重复用户刚说过的话或回声。如果你听到重复的声音，请忽略它。"
+    "\n2. 当用户表达结束对话的意愿（如说'再见'、'拜拜'、'结束对话'、'goodbye'、'bye'等），"
+    "你应该先礼貌地告别，然后**必须**调用 end_conversation 工具来结束对话。"
+)
+
 ROLE_PRESETS = {
-    "玩具儿童助手": "你是一个友善、活泼的儿童智能玩具助手。用简单、有趣的语言与小朋友对话。回答要简短，语气要温暖、鼓励。",
-    "AI 耳机助手": "你是一个智能耳机的 AI 助手。帮助用户管理日程、回答问题、翻译短语。回答简洁高效，像一个贴心的个人助理。",
-    "企业客服": "你是一个专业的企业客服代表。用礼貌、专业的语气回答客户问题。始终保持耐心和准确。",
+    "玩具儿童助手": "你是一个友善、活泼的儿童智能玩具助手。用简单、有趣的语言与小朋友对话。回答要简短，语气要温暖、鼓励。" + _ROLE_SUFFIX,
+    "AI 耳机助手": "你是一个智能耳机的 AI 助手。帮助用户管理日程、回答问题、翻译短语。回答简洁高效，像一个贴心的个人助理。" + _ROLE_SUFFIX,
+    "企业客服": "你是一个专业的企业客服代表。用礼貌、专业的语气回答客户问题。始终保持耐心和准确。" + _ROLE_SUFFIX,
 }
 
 VOICE_OPTIONS = [
@@ -239,8 +250,8 @@ def build_realtime_tab(page: ft.Page):
     _REPREBUF_MS = 400            # 二次预缓冲 (ms)  ← v3 新增
     _JITTER_WINDOW = 20           # 抖动计算滑动窗口
     _UNDERRUN_WINDOW_SEC = 15     # underrun 统计窗口 (秒)
-    _ECHO_GATE_RMS = 800          # 回声门控 RMS 阈值 (int16 量级)
-    _ECHO_COOLDOWN_SEC = 0.6      # AI 停播后继续门控的冷却时间 (秒)
+    _ECHO_GATE_RMS = 1500         # 回声门控 RMS 阈值 (int16 量级) v12: 800→1500
+    _ECHO_COOLDOWN_SEC = 1.2      # AI 停播后继续门控的冷却时间 (秒) v12: 0.6→1.2
 
     def _ms_to_bytes(ms: float) -> int:
         return int(ms / 1000 * SAMPLE_RATE * 2)
@@ -801,6 +812,50 @@ def build_realtime_tab(page: ft.Page):
                 _fill_pending_user_bubble(transcript.strip())
                 _mark_dirty()
 
+        elif etype == ServerEventType.RESPONSE_FUNCTION_CALL_ARGUMENTS_DONE:
+            # ── 工具调用处理 ──
+            func_name = getattr(event, "name", "") or ""
+            call_id = getattr(event, "call_id", "") or ""
+            arguments_str = getattr(event, "arguments", "") or "{}"
+            log.info("工具调用: name=%s, call_id=%s, args=%s", func_name, call_id, arguments_str)
+
+            if func_name == "end_conversation":
+                # 解析原因
+                try:
+                    args = json.loads(arguments_str)
+                    reason = args.get("reason", "用户结束对话")
+                except (json.JSONDecodeError, AttributeError):
+                    reason = "用户结束对话"
+
+                log.info("end_conversation 工具被调用: %s", reason)
+                _add_system_msg("AI 已结束对话")
+                _mark_dirty()
+
+                # 发送工具结果并延迟断开（让 AI 的告别语音播完）
+                async def _send_result_and_disconnect():
+                    try:
+                        conn = vl_state["connection"]
+                        if conn:
+                            from azure.ai.voicelive.models import FunctionCallOutputItem
+                            await conn.conversation.item.create(
+                                item=FunctionCallOutputItem(
+                                    call_id=call_id,
+                                    output=json.dumps({"status": "ok", "message": "对话已结束"}),
+                                )
+                            )
+                    except Exception as ex:
+                        log.warning("发送工具结果失败: %s", ex)
+
+                    # 等待 AI 告别语音播放完毕
+                    await asyncio.sleep(3.0)
+                    _on_stop()
+
+                loop = vl_state.get("loop")
+                if loop:
+                    asyncio.run_coroutine_threadsafe(_send_result_and_disconnect(), loop)
+                else:
+                    _on_stop()
+
         elif etype == ServerEventType.ERROR:
             err = getattr(event, "error", None)
             msg = getattr(err, "message", str(err)) if err else "未知错误"
@@ -819,7 +874,8 @@ def build_realtime_tab(page: ft.Page):
         from azure.ai.voicelive.aio import connect
         from azure.ai.voicelive.models import (
             AudioEchoCancellation, AudioNoiseReduction, AzureStandardVoice,
-            InputAudioFormat, Modality, OutputAudioFormat, RequestSession, ServerVad,
+            FunctionTool, InputAudioFormat, Modality, OutputAudioFormat,
+            RequestSession, ServerVad,
         )
 
         vl_state["loop"] = asyncio.get_event_loop()
@@ -859,6 +915,35 @@ def build_realtime_tab(page: ft.Page):
                     prefix_padding_ms=300, silence_duration_ms=500,
                 )
 
+                # ── 转写语言推断 ──
+                # 根据所选语音推断转写语言，避免 Whisper 首句误检
+                _lang_map = {
+                    "zh": "zh", "en": "en", "ja": "ja", "ko": "ko",
+                    "de": "de", "fr": "fr",
+                }
+                transcribe_lang = "zh"  # 默认中文
+                for prefix, lang in _lang_map.items():
+                    if voice_name.lower().startswith(prefix):
+                        transcribe_lang = lang
+                        break
+                log.info("转写语言: %s (voice=%s)", transcribe_lang, voice_name)
+
+                # ── end_conversation 工具定义 ──
+                end_conv_tool = FunctionTool(
+                    name="end_conversation",
+                    description="当用户明确表示要结束对话时调用此工具（如说再见、拜拜、goodbye等）。调用前请先礼貌告别。",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "reason": {
+                                "type": "string",
+                                "description": "结束对话的原因",
+                            },
+                        },
+                        "required": ["reason"],
+                    },
+                )
+
                 session_kwargs = dict(
                     modalities=[Modality.TEXT, Modality.AUDIO],
                     instructions=instructions,
@@ -866,7 +951,12 @@ def build_realtime_tab(page: ft.Page):
                     input_audio_format=InputAudioFormat.PCM16,
                     output_audio_format=OutputAudioFormat.PCM16,
                     turn_detection=turn_detection,
-                    input_audio_transcription={"model": "whisper-1"},
+                    input_audio_transcription={
+                        "model": "gpt-4o-transcribe",
+                        "language": transcribe_lang,
+                    },
+                    tools=[end_conv_tool],
+                    tool_choice="auto",
                 )
                 if noise_switch.value:
                     session_kwargs["input_audio_noise_reduction"] = AudioNoiseReduction(

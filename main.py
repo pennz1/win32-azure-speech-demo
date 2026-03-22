@@ -47,7 +47,7 @@ from transcription_tab import build_transcription_tab
 from realtime_tab import build_realtime_tab
 from interpreter_tab import build_interpreter_tab
 
-VERSION = "v2.0.0322.12"
+VERSION = "v2.0.0322.13"
 
 
 def main(page: ft.Page):
