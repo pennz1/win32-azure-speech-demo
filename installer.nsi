@@ -54,7 +54,12 @@ RequestExecutionLevel admin
 Section "主程序" SEC_MAIN
     SectionIn RO ; 必选
 
+    ; 强制结束正在运行的旧版本（避免 EXE 被锁定无法覆盖）
+    nsExec::Exec 'taskkill /F /IM "${PRODUCT_EXE}"'
+    Sleep 1500
+
     SetOutPath "$INSTDIR"
+    SetOverwrite on
 
     ; 复制主程序
     File "dist\${PRODUCT_EXE}"
@@ -112,6 +117,10 @@ SectionEnd
 ; 卸载区段
 ; ============================================================
 Section "Uninstall"
+    ; 结束正在运行的程序再删除
+    nsExec::Exec 'taskkill /F /IM "${PRODUCT_EXE}"'
+    Sleep 1000
+
     ; 删除程序文件
     Delete "$INSTDIR\${PRODUCT_EXE}"
     Delete "$INSTDIR\Uninstall.exe"
