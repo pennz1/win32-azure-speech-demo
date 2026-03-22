@@ -10,7 +10,10 @@
 ; ── 产品信息 ──────────────────────────────────────────────────
 !define PRODUCT_NAME    "领驭科技 Azure AI 语音演示台"
 !define PRODUCT_EXE     "AzureAISpeechDemo.exe"
-!define PRODUCT_VERSION "2.0.0322.11"
+; PRODUCT_VERSION 可由构建脚本通过 /DPRODUCT_VERSION=x.x.x 传入，当前默认为下方备用值
+!ifndef PRODUCT_VERSION
+  !define PRODUCT_VERSION "2.0.0322.12"
+!endif
 !define PUBLISHER       "领驭科技-技术组"
 !define UNINST_KEY      "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 
@@ -28,7 +31,7 @@ RequestExecutionLevel admin
 ; ── 安装向导页面 ──────────────────────────────────────────────
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "欢迎安装 ${PRODUCT_NAME}"
-!define MUI_WELCOMEPAGE_TEXT "本向导将引导您完成 ${PRODUCT_NAME} ${PRODUCT_VERSION} 的安装。$\r$\n$\r$\n运行本程序需要：$\r$\n  - Windows 10/11 x64$\r$\n  - Microsoft Visual C++ Redistributable (x64)$\r$\n$\r$\n点击「下一步」继续。"
+!define MUI_WELCOMEPAGE_TEXT "本向导将引导您完成 ${PRODUCT_NAME} ${PRODUCT_VERSION} 的安装。$\r$\n$\r$\n运行本程序需要：$\r$\n  - Microsoft Visual C++ Redistributable (x64)$\r$\n$\r$\n点击「下一步」继续。"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "立即运行 ${PRODUCT_NAME}"
 

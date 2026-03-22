@@ -11,7 +11,9 @@ $ErrorActionPreference = "Stop"
 $ProjectDir = $PSScriptRoot
 Set-Location $ProjectDir
 
-$Version = "2.0.0322.11"
+# 从 main.py 读取版本号（单一来源）——去掉开头的 'v'
+$rawVersion = (Select-String -Path "$ProjectDir\main.py" -Pattern 'VERSION\s*=\s*"v?([\d\.]+)"').Matches[0].Groups[1].Value
+$Version = $rawVersion
 $AppName = "AzureAISpeechDemo"
 $Venv = "$ProjectDir\.venv\Scripts"
 
@@ -111,7 +113,7 @@ if (-not $SkipInstaller) {
     if ($makensis) {
         Write-Host "  NSIS: $makensis" -ForegroundColor Green
         $ErrorActionPreference = "Continue"
-        & $makensis /INPUTCHARSET UTF8 "$ProjectDir\installer.nsi" 2>&1
+        & $makensis /INPUTCHARSET UTF8 "/DPRODUCT_VERSION=$Version" "$ProjectDir\installer.nsi" 2>&1
         $nsisExit = $LASTEXITCODE
         $ErrorActionPreference = "Stop"
         if ($nsisExit -eq 0) {
