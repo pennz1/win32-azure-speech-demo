@@ -483,23 +483,7 @@ makensis /INPUTCHARSET UTF8 installer.nsi
 
 ---
 
-## 🧹 可清理的临时文件
 
-以下文件/目录为运行时或构建时生成，可以安全删除：
-
-| 文件/目录 | 说明 | 是否可清除 |
-|----------|------|----------|
-| `voicelive_debug.log` | Voice Live 运行时调试日志 | ✅ 可清除 |
-| `_build_py_stderr.log` | 构建时 stderr 日志 | ✅ 可清除 |
-| `_build_py_stdout.log` | 构建时 stdout 日志 | ✅ 可清除 |
-| `recordings/*.wav` | 录音文件 | ✅ 可清除（用户数据） |
-| `build/` | PyInstaller 构建中间文件 | ✅ 可清除 |
-| `dist/` | 构建产出（exe / 安装包） | ✅ 可清除（可重新构建） |
-| `__pycache__/` | Python 字节码缓存 | ✅ 可清除 |
-| `.venv/` | Python 虚拟环境 | ✅ 可清除（可重新创建） |
-| `_build_exe.py` | 构建辅助脚本 | ⚠️ 构建时需要，保留 |
-
----
 
 ## 📄 许可
 
