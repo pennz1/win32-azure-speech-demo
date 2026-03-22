@@ -234,6 +234,19 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 - **❗ Tooltip 没有 content 参数**：Flet 0.82 的 `ft.Tooltip` 不接受 `content` 关键字参数（不是包装组件）。要给按钮加 tooltip 应使用 `IconButton(tooltip="...")` 属性
 - **❗ IconButton 没有 content 参数**：Flet 0.82 的 `ft.IconButton` 不接受 `content` 参数。必须使用 `icon=ft.Icons.XXX` 属性设置图标
 - **❗ 音频重构后定义遗漏**（v2.0.0322.10）：v2.0.0322.9 将音频播放从 `Queue[_PlaybackPacket]` 重构为 `_AudioBuffer` 连续字节缓冲，但 `OUT_BLOCKSIZE` 常量和 `_AudioBuffer` 类定义未写入模块级作用域（仍保留旧的 `_PlaybackPacket` 类），导致运行时 `NameError: name 'OUT_BLOCKSIZE' is not defined` 和 `NameError: name 'audio_buf' is not defined`。修复：将 `_AudioBuffer` 类和 `OUT_BLOCKSIZE = 4800` 定义放在模块级（`build_realtime_tab` 函数外），移除旧的 `_PlaybackPacket` 类和 `import queue`
+- **❗ PyInstaller onefile 模式遗漏 ctypes DLL（v2.0.0322.12）**：
+  - **症状**：MSI 安装包运行后，Tab 1 实时转录和 Tab 3 同声传译点击启动立即报错 `Failed to load dynlib/dll 'C:\\Users\\xxx\\AppData\\Local\\Temp\\_MEI226762\\azure\\cognitiveservices\\speech\\Microsoft.CognitiveServices.Speech.core.dll'`。直接 `python main.py` 运行正常
+  - **根因**：Azure Speech SDK 的 `interop.py` 通过 `ctypes.windll.LoadLibrary(os.path.join(os.path.dirname(__file__), library_name))` 动态加载 `Microsoft.CognitiveServices.Speech.core.dll`。PyInstaller 的依赖分析只扫描 Python import，不扫描 ctypes 调用，因此这 4 个 DLL 不会被自动包含。旧 spec 中 `binaries=[]` 为空，导致所有 Azure Speech SDK 原生 DLL 缺失
+  - **修复**：在 `AzureAISpeechDemo.spec` 中用 glob 动态收集 DLL 并以正确子目录加入 `binaries`：
+    ```python
+    _sp = Path(SPECPATH) / '.venv' / 'Lib' / 'site-packages'
+    _speech_bins = [(str(f), 'azure/cognitiveservices/speech') for f in (_sp / 'azure' / 'cognitiveservices' / 'speech').glob('*.dll')]
+    _sd_bins = [(str(f), '_sounddevice_data/portaudio-binaries') for f in (_sp / '_sounddevice_data' / 'portaudio-binaries').glob('*.dll')]
+    binaries = _speech_bins + _sd_bins
+    ```
+  - **关键点**：目标路径必须与包的 `__file__` 路径结构匹配，否则 ctypes 找不到 DLL
+  - **同类问题**：sounddevice 的 portaudio DLL 也相同原理，同步修复
+  - **打包结果**：exe 从 131.8 MB 降至 106.5 MB（UPX 压缩后 DLL 体积更小）
 
 ## Tab 3 同声传译 Live Interpreter — 已完成
 ### 已完成
@@ -324,17 +337,20 @@ Flet (Material Design 3) 深色/浅色/跟随系统主题可切换，Azure 蓝 #
 
 ## 发布记录
 
+### v2.0.0322.12 — GitHub Release（2026-03-22）
+- **推送到 GitHub**：`main` 分支
+- **Release**：[v2.0.0322.12](https://github.com/pennz1/win32-azure-speech-demo/releases/tag/v2.0.0322.12)
+- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.12.exe`（~106 MB）
+- **修复**：PyInstaller onefile 遗漏 Azure Speech SDK ctypes DLL 导致 Tab 1/3 启动报错
+- **spec 变更**：`AzureAISpeechDemo.spec` 使用 `Path(SPECPATH)` 动态 glob DLL，移除硬编码绝对路径
+
 ### v2.0.0322.11 — GitHub Release（2026-03-22）
 - **推送到 GitHub**：`main` 分支，commit `d10a55e`
 - **Release**：[v2.0.0322.11](https://github.com/pennz1/win32-azure-speech-demo/releases/tag/v2.0.0322.11)
-- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.11.exe`（~131 MB）
-- **README 重构**：全面更新，反映 Voice Live + 同声传译 + 自适应抖动缓冲 v3 + 回声门控等最新功能
-- **.gitignore 更新**：排除运行时日志（`voicelive_debug.log`、`_build_py_*.log`），允许 `AzureAISpeechDemo.spec`
-- **不推送的文件**：
-  - `_build_exe.py` / `_check_braces.py`：临时构建辅助脚本
-  - `voicelive_debug.log` / `_build_py_*.log`：运行时日志
-  - `dist/` / `build/`：构建产物
-  - `config.json`：加密配置
+- **安装包**：`AzureAISpeechDemo_Setup_2.0.0322.11.exe`（~131 MB，DLL 未打包，已被 v2.0.0322.12 修复替代）
+- **README 重构**：全面更新，反映 Phase 2 Voice Live + Phase 3 等最新功能
+- **.gitignore 更新**：排除运行时日志，允许 `AzureAISpeechDemo.spec`
+- **不推送的文件**：`_build_exe.py`、`_check_braces.py`（临时脚本）/ 日志 / `dist/` / `build/` / `config.json`
 
 ## Flet 0.82 迁移摘要（2026-03-21 本次完成）
 ### 背景
